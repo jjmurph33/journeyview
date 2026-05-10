@@ -6,26 +6,17 @@ use gpx::Gpx;
 #[derive(Default)]
 pub struct App {
     gpx_data: Gpx,
+    name: String,
 }
 
 impl App {
-    pub fn new(_cc: &eframe::CreationContext<'_>, gpx_data: Gpx) -> Self {
-        Self {
-            gpx_data,
-            ..Default::default()
-        }
+    pub fn new(_cc: &eframe::CreationContext<'_>, gpx_data: Gpx, name: String) -> Self {
+        Self { gpx_data, name }
     }
 
     fn top_panel(&mut self, ui: &mut egui::Ui) {
-        let mut output_name = &"GPX Viewer".to_string();
-        if let Some(metadata) = &self.gpx_data.metadata {
-            if let Some(name) = &metadata.name {
-                output_name = &name;
-            }
-        }
-
         ui.horizontal(|ui| {
-            ui.label(output_name);
+            ui.label(&self.name);
             ui.separator();
 
             ui.label(format!("Distance: {:.1}mi", km_to_mi(self.distance())));
