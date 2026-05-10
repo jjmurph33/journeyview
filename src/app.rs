@@ -44,7 +44,11 @@ impl App {
     fn map_panel(&mut self, ui: &mut egui::Ui) {
         let track_color = Color32::from_rgb(66, 133, 244); // blue
 
+        let available_height = ui.available_size().y;
+        let map_height = (available_height / 2.0).max(200.0);
+
         let plot = Plot::new("track_map")
+            .height(map_height)
             .data_aspect(1.0)
             .x_axis_label("Longitude")
             .y_axis_label("Latitude")
@@ -75,15 +79,48 @@ impl App {
     }
 
     fn elevation_panel(&mut self, ui: &mut egui::Ui) {
-        ui.label("elevation");
-        for track in &self.gpx_data.tracks {
-            for segment in &track.segments {
-                for waypoint in &segment.points {
-                    let elevation = waypoint.elevation.unwrap_or(0.0);
-                    ui.label(format!("{}", elevation));
+        let track_color = Color32::from_rgb(66, 244, 133); // green
+
+        let plot = Plot::new("elevation_map")
+            .x_axis_label("Distance (mi)")
+            .y_axis_label("Feet")
+            .show_axes(true)
+            .show_grid(true);
+
+        plot.show(ui, |plot_ui| {
+            let mut distance = 0.0;
+            let mut prev: Option<(f64, f64)> = None; // (lat, lon)
+
+            for (ti, trk) in self.gpx_data.tracks.iter().enumerate() {
+                for seg in &trk.segments {
+                    let mut pts_vec: Vec<[f64; 2]> = Vec::new();
+                    for p in &seg.points {
+                        let lat = p.point().y();
+                        let lon = p.point().x();
+                        if let Some((prev_lat, prev_lon)) = prev {
+                            distance += haversine_distance(prev_lat, prev_lon, lat, lon);
+                        }
+                        prev = Some((lat, lon));
+
+                        let x = km_to_mi(distance);
+                        let y = mi_to_ft(p.elevation.unwrap_or(0.0));
+                        pts_vec.push([x, y]);
+                    }
+
+                    let pts: PlotPoints = pts_vec.into_iter().collect();
+                    let name = trk
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| format!("Track {}", ti + 1));
+                    plot_ui.line(
+                        Line::new("Track", pts)
+                            .name(&name)
+                            .color(track_color)
+                            .width(2.5),
+                    );
                 }
             }
-        }
+        });
     }
 
     fn min_elevation(&self) -> f64 {
@@ -126,10 +163,10 @@ impl App {
                     let point = &segment.points[i];
                     let prev_point = &segment.points[i - 1];
                     let distance = haversine_distance(
-                        prev_point.point().x(),
                         prev_point.point().y(),
-                        point.point().x(),
+                        prev_point.point().x(),
                         point.point().y(),
+                        point.point().x(),
                     );
                     total += distance;
                 }
