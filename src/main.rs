@@ -1,7 +1,10 @@
 mod app;
 
 use eframe;
+use geo_types::Coord;
+//use geo_types::Coord;
 use gpx::Gpx;
+use polyline::{self, errors::PolylineError};
 use std::io::{BufReader, Cursor};
 
 fn main() {
@@ -26,6 +29,14 @@ fn run() -> Result<(), eframe::Error> {
     let reader = BufReader::new(cursor);
     let gpx: Gpx = gpx::read(reader).unwrap();
 
+    if let Ok(encoded) = encode(&gpx) {
+        println!("{}", encoded);
+        println!();
+        decode(&encoded);
+    } else {
+        println!("error encoding gpx data");
+    }
+
     eframe::run_native(
         "GPX Viewer",
         options,
@@ -35,6 +46,31 @@ fn run() -> Result<(), eframe::Error> {
         }),
     )
 }
+
+fn encode(data: &Gpx) -> Result<String, PolylineError> {
+    let coords: Vec<Coord> = data
+        .tracks
+        .iter()
+        .flat_map(|t| t.segments.iter())
+        .flat_map(|seg| seg.points.iter())
+        .map(|p| Coord::from((p.point().x(), p.point().y())))
+        .collect();
+
+    for p in 0..10 {
+        println!("({} {})", coords[p].y, coords[p].x);
+    }
+
+    let encoded = polyline::encode_coordinates(coords, 5);
+    encoded
+}
+
+fn decode(data: &str) {
+    let decoded = polyline::decode_polyline(data, 5);
+
+    println!("{:?}", decoded.unwrap());
+}
+
+const SAMPLE_GPX_ENCODED: &str = r#"}}}oG`qmlLS?Dc@IWAYKa@GYKU@c@KWSGKSGWGYI[SSE[GWMYKc@G[MUOUSUW[KUSISSSGQSOQUWOMIUWGGYQOOUSWMQ?a@D_@CY@e@AYD_@A_@L_@FUE[A]I[E]M[MQQMI_@OYUIOGWQK]OMIWMSOKBY@e@A]B[BYG_@AYI[GUK[A_@G[WA?g@OWOOOSKYKUSQ_@WOMOKKUKWOUWQYGQGUe@QSODOOUEKYSESISIOCW@SFQJOMQIWCQ?UAU?YOQSQOOQE]G]AYK_@I]EWIe@M[Kk@O[QMMg@CYYa@?a@EYD]Fi@F[?YH]D[DYG_@?]A_@P?PKPMB]@]Dm@PQJ]Ac@Ie@C_@K]D[JUL]\OHSPKPWRAPDRJ\AXBTKLORIFk@NQVAZBP@PSNQPWR?NQNMRMNOB[B]?[?]LQPOOPEZC]SDJR?\?ZITHh@HXMYYFOLOLQHQF]`@m@LUAQDONCXMRMNWLQBQCSAQ?QGSKQBEd@QLW@OPSj@IRGZLTHV@^BX?ZEVUXG^ITBd@QNOLQFGT@ZHTCZAZI`@CXCXIVEr@@^Bb@JPHf@FZNPPF@ZJ`@RX@XHXH`@?XJXBVDb@FZTVNLJRRLP?RAR?PHRBPDRFRCNORGRBNLNDPFPNNNTDPNVNNLJRPJPHPFNPRH@XPPRJJVZHLTLRFXNNNVPLFVGb@QVJUJUNJDb@BXFVFXL`@BZ@X?^AXCZDd@CZRJLRLTJTLNNLPHRJLTDVNPRRDVJXFXBXDVAZEXMn@?ZAX@ZAXB\EXCXJRRPLNPRLTRTRRPLPZLPPHJPPHNNLLLVXLL`@TPJRF^DXPJ?`@LRNPFVBZHTDVPPTBHXCVBXJTHT@ZEXC[NKBXBXFXDXD^"#;
 
 const SAMPLE_GPX: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="GPX Viewer Sample">
