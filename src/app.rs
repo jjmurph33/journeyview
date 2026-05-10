@@ -3,14 +3,18 @@ use egui::{CentralPanel, Color32, Panel, Ui};
 use egui_plot::{Line, Plot, PlotPoints};
 use gpx::Gpx;
 
+use crate::journey;
+
 #[derive(Default)]
 pub struct App {
     gpx: Gpx,
-    name: String,
     distance: f64,       // miles
     min_elevation: f64,  // feet
     max_elevation: f64,  // feet
     diff_elevation: f64, // feet
+    name: String,
+    name_editing: bool,
+    name_buffer: String,
 }
 
 impl App {
@@ -26,19 +30,45 @@ impl App {
             min_elevation,
             max_elevation,
             diff_elevation,
+            name_editing: false,
+            name_buffer: String::new(),
         }
     }
 
     fn top_panel(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label(&self.name);
+            // clickable label that switches to an inline text edit
+            if self.name_editing {
+                if self.name_buffer.is_empty() {
+                    self.name_buffer = self.name.clone();
+                }
+                let resp = ui.text_edit_singleline(&mut self.name_buffer);
+                let commit =
+                    ui.ctx().input(|i| i.key_pressed(egui::Key::Enter)) || resp.lost_focus();
+                if commit {
+                    self.name = self.name_buffer.clone();
+                    self.name_editing = false;
+                }
+            } else {
+                let lbl = ui.add(egui::Label::new(self.name.clone()).sense(egui::Sense::click()));
+                if lbl.clicked() {
+                    self.name_editing = true;
+                    self.name_buffer = self.name.clone();
+                }
+            }
+
             ui.separator();
             ui.label(format!("Distance: {:.1}mi", self.distance));
             ui.separator();
             ui.label(format!(
                 "Elevation: {:.0}ft -> {:.0}ft ({:.0}ft)",
                 self.min_elevation, self.max_elevation, self.diff_elevation
-            ))
+            ));
+            ui.separator();
+            if ui.button("Export").clicked() {
+                let export_string = journey::export(&self.gpx, &self.name);
+                println!("{}\n", export_string);
+            }
         });
     }
 

@@ -28,9 +28,6 @@ fn run() -> Result<(), eframe::Error> {
         }
     }
 
-    let output = journey::export(&gpx);
-    println!("{}\n", output);
-
     eframe::run_native(
         "Journey View",
         options,

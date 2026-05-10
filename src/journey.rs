@@ -80,10 +80,10 @@ pub fn import_sample() -> Gpx {
     gpx
 }
 
-pub fn export(gpx: &Gpx) -> String {
+pub fn export(gpx: &Gpx, name: &str) -> String {
     let polyline = to_polyline(&gpx);
-    let metadata = gpx.metadata.as_ref().unwrap();
-    let name = metadata.name.as_ref().unwrap().clone();
+    //let metadata = gpx.metadata.as_ref().unwrap();
+    //let name = metadata.name.as_ref().unwrap().clone();
     let journey_encoded = encode(&name, &polyline);
     journey_encoded
 }
