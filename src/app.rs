@@ -31,8 +31,8 @@ impl App {
             ui.label(format!("Distance: {:.1}mi", km_to_mi(self.distance())));
             ui.separator();
 
-            let min_elevation = mi_to_ft(km_to_mi(self.min_elevation()));
-            let max_elevation = mi_to_ft(km_to_mi(self.max_elevation()));
+            let min_elevation = m_to_ft(self.min_elevation());
+            let max_elevation = m_to_ft(self.max_elevation());
             let diff_elevation = max_elevation - min_elevation;
             ui.label(format!(
                 "Elevation: {:.0}ft -> {:.0}ft ({:.0}ft)",
@@ -103,7 +103,7 @@ impl App {
                         prev = Some((lat, lon));
 
                         let x = km_to_mi(distance);
-                        let y = mi_to_ft(p.elevation.unwrap_or(0.0));
+                        let y = m_to_ft(p.elevation.unwrap_or(0.0));
                         pts_vec.push([x, y]);
                     }
 
@@ -206,6 +206,6 @@ fn km_to_mi(value: f64) -> f64 {
     value * 0.621371
 }
 
-fn mi_to_ft(value: f64) -> f64 {
+fn m_to_ft(value: f64) -> f64 {
     value * 3.28084
 }
