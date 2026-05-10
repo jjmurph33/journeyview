@@ -1,8 +1,7 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE};
 use flexpolyline::Polyline;
 use geo_types::Point;
-use gpx::GpxVersion;
-use gpx::{Gpx, Metadata, Track, TrackSegment, Waypoint};
+use gpx::{Gpx, GpxVersion, Metadata, Track, TrackSegment, Waypoint};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -20,13 +19,13 @@ impl Journey {
     }
 }
 
-fn to_polyline(data: &Gpx) -> String {
+fn to_polyline(gpx: &Gpx) -> String {
     // (lat,lon,elev)
-    let coordinates: Vec<(f64, f64, f64)> = data
+    let coordinates: Vec<(f64, f64, f64)> = gpx
         .tracks
         .iter()
-        .flat_map(|t| t.segments.iter())
-        .flat_map(|seg| seg.points.iter())
+        .flat_map(|track| track.segments.iter())
+        .flat_map(|segment| segment.points.iter())
         .map(|p| (p.point().y(), p.point().x(), p.elevation.unwrap_or(0.0)))
         .collect();
     let polyline = Polyline::Data3d {
@@ -39,11 +38,11 @@ fn to_polyline(data: &Gpx) -> String {
     polyline.encode().unwrap_or(String::new())
 }
 
-fn from_polyline(data: &str) -> Gpx {
+fn from_polyline(polyline: &str) -> Gpx {
     let mut gpx: Gpx = Default::default();
     gpx.version = GpxVersion::Gpx11;
-    let polyline = Polyline::decode(data).unwrap();
-    if let Polyline::Data3d { coordinates, .. } = polyline {
+    let decoded = Polyline::decode(polyline).unwrap();
+    if let Polyline::Data3d { coordinates, .. } = decoded {
         let mut segment = TrackSegment::new();
         segment.points = coordinates
             .iter()

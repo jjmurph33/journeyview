@@ -5,7 +5,7 @@ use gpx::Gpx;
 
 #[derive(Default)]
 pub struct App {
-    gpx_data: Gpx,
+    gpx: Gpx,
     name: String,
     distance: f64,       // miles
     min_elevation: f64,  // feet
@@ -14,13 +14,13 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(_cc: &eframe::CreationContext<'_>, gpx_data: Gpx, name: String) -> Self {
-        let distance = km_to_mi(distance(&gpx_data));
-        let min_elevation = m_to_ft(min_elevation(&gpx_data));
-        let max_elevation = m_to_ft(max_elevation(&gpx_data));
+    pub fn new(gpx: Gpx, name: String) -> Self {
+        let distance = km_to_mi(distance(&gpx));
+        let min_elevation = m_to_ft(min_elevation(&gpx));
+        let max_elevation = m_to_ft(max_elevation(&gpx));
         let diff_elevation = max_elevation - min_elevation;
         Self {
-            gpx_data,
+            gpx,
             name,
             distance,
             min_elevation,
@@ -57,7 +57,7 @@ impl App {
             .show_grid(true);
 
         plot.show(ui, |plot_ui| {
-            for (ti, trk) in self.gpx_data.tracks.iter().enumerate() {
+            for (ti, trk) in self.gpx.tracks.iter().enumerate() {
                 for seg in &trk.segments {
                     let pts: PlotPoints = seg
                         .points
@@ -92,7 +92,7 @@ impl App {
             let mut distance = 0.0;
             let mut prev: Option<(f64, f64)> = None; // (lat, lon)
 
-            for (ti, trk) in self.gpx_data.tracks.iter().enumerate() {
+            for (ti, trk) in self.gpx.tracks.iter().enumerate() {
                 for seg in &trk.segments {
                     let mut pts_vec: Vec<[f64; 2]> = Vec::new();
                     for p in &seg.points {

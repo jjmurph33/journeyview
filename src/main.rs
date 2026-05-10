@@ -34,8 +34,8 @@ fn run() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Journey View",
         options,
-        Box::new(move |cc| {
-            let app = app::App::new(cc, gpx, name);
+        Box::new(move |_cc| {
+            let app = app::App::new(gpx, name);
             Ok(Box::new(app))
         }),
     )
