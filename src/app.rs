@@ -7,27 +7,37 @@ use gpx::Gpx;
 pub struct App {
     gpx_data: Gpx,
     name: String,
+    distance: f64,       // miles
+    min_elevation: f64,  // feet
+    max_elevation: f64,  // feet
+    diff_elevation: f64, // feet
 }
 
 impl App {
     pub fn new(_cc: &eframe::CreationContext<'_>, gpx_data: Gpx, name: String) -> Self {
-        Self { gpx_data, name }
+        let distance = km_to_mi(distance(&gpx_data));
+        let min_elevation = m_to_ft(min_elevation(&gpx_data));
+        let max_elevation = m_to_ft(max_elevation(&gpx_data));
+        let diff_elevation = max_elevation - min_elevation;
+        Self {
+            gpx_data,
+            name,
+            distance,
+            min_elevation,
+            max_elevation,
+            diff_elevation,
+        }
     }
 
     fn top_panel(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label(&self.name);
             ui.separator();
-
-            ui.label(format!("Distance: {:.1}mi", km_to_mi(self.distance())));
+            ui.label(format!("Distance: {:.1}mi", self.distance));
             ui.separator();
-
-            let min_elevation = m_to_ft(self.min_elevation());
-            let max_elevation = m_to_ft(self.max_elevation());
-            let diff_elevation = max_elevation - min_elevation;
             ui.label(format!(
                 "Elevation: {:.0}ft -> {:.0}ft ({:.0}ft)",
-                min_elevation, max_elevation, diff_elevation
+                self.min_elevation, self.max_elevation, self.diff_elevation
             ))
         });
     }
@@ -113,58 +123,6 @@ impl App {
             }
         });
     }
-
-    fn min_elevation(&self) -> f64 {
-        let mut min = f64::MAX;
-        for track in &self.gpx_data.tracks {
-            for segment in &track.segments {
-                for waypoint in &segment.points {
-                    if let Some(elevation) = waypoint.elevation {
-                        if elevation < min {
-                            min = elevation;
-                        }
-                    }
-                }
-            }
-        }
-        min
-    }
-
-    fn max_elevation(&self) -> f64 {
-        let mut max = f64::MIN;
-        for track in &self.gpx_data.tracks {
-            for segment in &track.segments {
-                for waypoint in &segment.points {
-                    if let Some(elevation) = waypoint.elevation {
-                        if elevation > max {
-                            max = elevation;
-                        }
-                    }
-                }
-            }
-        }
-        max
-    }
-
-    fn distance(&self) -> f64 {
-        let mut total = 0.0;
-        for track in &self.gpx_data.tracks {
-            for segment in &track.segments {
-                for i in 1..segment.points.len() {
-                    let point = &segment.points[i];
-                    let prev_point = &segment.points[i - 1];
-                    let distance = haversine_distance(
-                        prev_point.point().y(),
-                        prev_point.point().x(),
-                        point.point().y(),
-                        point.point().x(),
-                    );
-                    total += distance;
-                }
-            }
-        }
-        total
-    }
 }
 
 impl eframe::App for App {
@@ -180,6 +138,58 @@ impl eframe::App for App {
             self.elevation_panel(ui);
         });
     }
+}
+
+fn min_elevation(gpx: &Gpx) -> f64 {
+    let mut min = f64::MAX;
+    for track in &gpx.tracks {
+        for segment in &track.segments {
+            for waypoint in &segment.points {
+                if let Some(elevation) = waypoint.elevation {
+                    if elevation < min {
+                        min = elevation;
+                    }
+                }
+            }
+        }
+    }
+    min
+}
+
+fn max_elevation(gpx: &Gpx) -> f64 {
+    let mut max = f64::MIN;
+    for track in &gpx.tracks {
+        for segment in &track.segments {
+            for waypoint in &segment.points {
+                if let Some(elevation) = waypoint.elevation {
+                    if elevation > max {
+                        max = elevation;
+                    }
+                }
+            }
+        }
+    }
+    max
+}
+
+fn distance(gpx: &Gpx) -> f64 {
+    let mut total = 0.0;
+    for track in &gpx.tracks {
+        for segment in &track.segments {
+            for i in 1..segment.points.len() {
+                let point = &segment.points[i];
+                let prev_point = &segment.points[i - 1];
+                let distance = haversine_distance(
+                    prev_point.point().y(),
+                    prev_point.point().x(),
+                    point.point().y(),
+                    point.point().x(),
+                );
+                total += distance;
+            }
+        }
+    }
+    total
 }
 
 fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
