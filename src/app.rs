@@ -5,7 +5,6 @@ use gpx::Gpx;
 
 use crate::journey;
 
-#[derive(Default)]
 pub struct App {
     gpx: Gpx,
     distance: f64,       // miles
