@@ -5,13 +5,26 @@ mod app;
 mod journey;
 
 use eframe;
+use eframe::egui;
+
+fn setup_dark_theme(ctx: &egui::Context) {
+    let mut visuals = egui::Visuals::dark();
+    visuals.panel_fill = egui::Color32::from_rgb(20, 20, 25);
+    visuals.window_fill = egui::Color32::from_rgb(25, 25, 30);
+    visuals.extreme_bg_color = egui::Color32::from_rgb(15, 15, 20);
+    visuals.faint_bg_color = egui::Color32::from_rgb(40, 40, 50);
+    visuals.weak_text_color = Some(egui::Color32::from_rgb(200, 200, 200));
+    visuals.override_text_color = Some(egui::Color32::from_rgb(240, 240, 245));
+    ctx.set_visuals(visuals);
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([1200.0, 800.0])
-            .with_min_inner_size([600.0, 400.0])
+            .with_inner_size([1800.0, 800.0])
+            .with_min_inner_size([1200.0, 600.0])
+            .with_maximized(true)
             .with_drag_and_drop(true),
         ..Default::default()
     };
@@ -27,7 +40,10 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Journey View",
         options,
-        Box::new(|_cc| Ok(Box::new(app::App::new(gpx, name)))),
+        Box::new(|cc| {
+            setup_dark_theme(&cc.egui_ctx);
+            Ok(Box::new(app::App::new(gpx, name)))
+        }),
     )
 }
 
@@ -62,7 +78,10 @@ fn main() {
             .start(
                 canvas,
                 web_options,
-                Box::new(|_cc| Ok(Box::new(app::App::new(gpx, name)))),
+                Box::new(|cc| {
+                    setup_dark_theme(&cc.egui_ctx);
+                    Ok(Box::new(app::App::new(gpx, name)))
+                }),
             )
             .await
             .expect("failed to start");

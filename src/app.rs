@@ -2,6 +2,8 @@ use eframe::egui;
 use egui::{CentralPanel, Color32, Panel, Ui};
 use egui_plot::{Line, Plot, PlotPoints};
 use gpx::Gpx;
+use std::fs;
+use std::io::BufReader;
 
 use crate::journey;
 
@@ -14,6 +16,11 @@ pub struct App {
     name: String,
     name_editing: bool,
     name_buffer: String,
+    import_dialog_open: bool,
+    import_path: String,
+    import_error: Option<String>,
+    show_map: bool,   // toggle between map and elevation plot
+    reset_plot: bool, // flag to reset plot zoom/pan
 }
 
 impl App {
@@ -31,59 +38,284 @@ impl App {
             diff_elevation,
             name_editing: false,
             name_buffer: String::new(),
+            import_dialog_open: false,
+            import_path: String::new(),
+            import_error: None,
+            show_map: true,
+            reset_plot: false,
+        }
+    }
+
+    fn load_gpx_file(&mut self, file_path: String) {
+        match fs::File::open(&file_path) {
+            Ok(file) => {
+                let reader = BufReader::new(file);
+                match gpx::read(reader) {
+                    Ok(gpx) => {
+                        self.gpx = gpx;
+                        self.distance = km_to_mi(distance(&self.gpx));
+                        self.min_elevation = m_to_ft(min_elevation(&self.gpx));
+                        self.max_elevation = m_to_ft(max_elevation(&self.gpx));
+                        self.diff_elevation = self.max_elevation - self.min_elevation;
+
+                        // Update name from metadata
+                        if let Some(metadata) = &self.gpx.metadata {
+                            if let Some(gpx_name) = &metadata.name {
+                                self.name = gpx_name.clone();
+                            }
+                        }
+
+                        self.import_error = None;
+                        self.import_dialog_open = false;
+                        self.import_path.clear();
+                    }
+                    Err(e) => {
+                        self.import_error = Some(format!("Failed to parse GPX file: {}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                self.import_error = Some(format!("Failed to open file: {}", e));
+            }
+        }
+    }
+
+    fn load_journey_string(&mut self, encoded: String) {
+        match journey::decode_journey(&encoded) {
+            Ok((name, gpx)) => {
+                self.gpx = gpx;
+                self.name = name;
+                self.distance = km_to_mi(distance(&self.gpx));
+                self.min_elevation = m_to_ft(min_elevation(&self.gpx));
+                self.max_elevation = m_to_ft(max_elevation(&self.gpx));
+                self.diff_elevation = self.max_elevation - self.min_elevation;
+                self.import_error = None;
+            }
+            Err(e) => {
+                self.import_error = Some(format!("Failed to decode journey: {}", e));
+            }
         }
     }
 
     fn top_panel(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            // clickable label that switches to an inline text edit
-            if self.name_editing {
-                if self.name_buffer.is_empty() {
-                    self.name_buffer = self.name.clone();
+            ui.vertical(|ui| {
+                if self.name_editing {
+                    if self.name_buffer.is_empty() {
+                        self.name_buffer = self.name.clone();
+                    }
+                    let resp = ui.text_edit_singleline(&mut self.name_buffer);
+                    let commit =
+                        ui.ctx().input(|i| i.key_pressed(egui::Key::Enter)) || resp.lost_focus();
+                    if commit {
+                        self.name = self.name_buffer.clone();
+                        self.name_editing = false;
+                    }
+                } else {
+                    let lbl = ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(self.name.clone())
+                                .size(28.0)
+                                .color(Color32::from_rgb(200, 220, 255))
+                                .strong(),
+                        )
+                        .sense(egui::Sense::click()),
+                    );
+                    if lbl.clicked() {
+                        self.name_editing = true;
+                        self.name_buffer = self.name.clone();
+                    }
                 }
-                let resp = ui.text_edit_singleline(&mut self.name_buffer);
-                let commit =
-                    ui.ctx().input(|i| i.key_pressed(egui::Key::Enter)) || resp.lost_focus();
-                if commit {
-                    self.name = self.name_buffer.clone();
-                    self.name_editing = false;
+
+                ui.label(
+                    egui::RichText::new(format!("Distance: {:.1}mi", self.distance))
+                        .size(18.0)
+                        .color(Color32::from_rgb(210, 210, 220)),
+                );
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Elevation: {:.0}ft -> {:.0}ft ({:.0}ft change)",
+                        self.min_elevation, self.max_elevation, self.diff_elevation
+                    ))
+                    .size(18.0)
+                    .color(Color32::from_rgb(210, 210, 220)),
+                );
+            });
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(if self.show_map { "Elevation" } else { "Map" })
+                                .size(16.0)
+                                .color(Color32::from_rgb(255, 255, 255)),
+                        )
+                        .min_size(egui::Vec2::new(150.0, 50.0))
+                        .fill(Color32::from_rgb(76, 175, 80)) // Green
+                        .stroke(egui::Stroke::new(2.0, Color32::from_rgb(56, 142, 60))),
+                    )
+                    .clicked()
+                {
+                    self.show_map = !self.show_map;
                 }
-            } else {
-                let lbl = ui.add(egui::Label::new(self.name.clone()).sense(egui::Sense::click()));
-                if lbl.clicked() {
-                    self.name_editing = true;
-                    self.name_buffer = self.name.clone();
+
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Export")
+                                .size(16.0)
+                                .color(Color32::from_rgb(255, 255, 255)),
+                        )
+                        .min_size(egui::Vec2::new(150.0, 50.0))
+                        .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                        .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                    )
+                    .clicked()
+                {
+                    let export_string = journey::export(&self.gpx, &self.name);
+                    println!("{}\n", export_string);
                 }
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Import Clipboard")
+                                .size(16.0)
+                                .color(Color32::from_rgb(255, 255, 255)),
+                        )
+                        .min_size(egui::Vec2::new(150.0, 50.0))
+                        .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                        .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                    )
+                    .clicked()
+                {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        match arboard::Clipboard::new() {
+                            Ok(mut clipboard) => match clipboard.get_text() {
+                                Ok(text) => {
+                                    self.load_journey_string(text);
+                                }
+                                Err(e) => {
+                                    self.import_error =
+                                        Some(format!("Failed to read clipboard: {}", e));
+                                }
+                            },
+                            Err(e) => {
+                                self.import_error =
+                                    Some(format!("Failed to access clipboard: {}", e));
+                            }
+                        }
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        self.import_error =
+                            Some("Clipboard import not available in browser".to_string());
+                    }
+                }
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Load File")
+                                .size(16.0)
+                                .color(Color32::from_rgb(255, 255, 255)),
+                        )
+                        .min_size(egui::Vec2::new(150.0, 50.0))
+                        .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                        .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                    )
+                    .clicked()
+                {
+                    self.import_dialog_open = true;
+                }
+            });
+        });
+    }
+
+    fn import_dialog(&mut self, ctx: &egui::Context) {
+        if self.import_dialog_open {
+            let mut should_load = false;
+            let mut load_path = String::new();
+            let mut should_close = false;
+
+            let mut open = self.import_dialog_open;
+            egui::Window::new("Import GPX File")
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    ui.label("Enter file path:");
+                    ui.text_edit_singleline(&mut self.import_path);
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Load").clicked() {
+                            if !self.import_path.is_empty() {
+                                should_load = true;
+                                load_path = self.import_path.clone();
+                            }
+                        }
+                        if ui.button("Cancel").clicked() {
+                            should_close = true;
+                            self.import_path.clear();
+                            self.import_error = None;
+                        }
+                    });
+
+                    if let Some(error) = &self.import_error {
+                        ui.colored_label(Color32::RED, error);
+                    }
+                });
+
+            self.import_dialog_open = open;
+
+            if should_close {
+                self.import_dialog_open = false;
             }
 
-            ui.separator();
-            ui.label(format!("Distance: {:.1}mi", self.distance));
-            ui.separator();
-            ui.label(format!(
-                "Elevation: {:.0}ft -> {:.0}ft ({:.0}ft)",
-                self.min_elevation, self.max_elevation, self.diff_elevation
-            ));
-            ui.separator();
-            if ui.button("Export").clicked() {
-                let export_string = journey::export(&self.gpx, &self.name);
-                println!("{}\n", export_string);
+            if should_load {
+                self.load_gpx_file(load_path);
             }
-        });
+        }
+    }
+
+    fn handle_dropped_files(&mut self, ctx: &egui::Context) {
+        let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
+
+        for file in dropped_files {
+            if let Some(path) = file.path {
+                // Only process .gpx files
+                if let Some(ext) = path.extension() {
+                    if ext.to_string_lossy().to_lowercase() == "gpx" {
+                        self.load_gpx_file(path.to_string_lossy().to_string());
+                    } else {
+                        self.import_error = Some(format!(
+                            "Invalid file type: {}. Please drop a .gpx file.",
+                            ext.to_string_lossy()
+                        ));
+                    }
+                } else {
+                    self.import_error =
+                        Some("File has no extension. Please drop a .gpx file.".to_string());
+                }
+            }
+        }
     }
 
     fn map_panel(&mut self, ui: &mut egui::Ui) {
         let track_color = Color32::from_rgb(66, 133, 244); // blue
 
         let available_height = ui.available_size().y;
-        let map_height = (available_height / 2.0).max(200.0);
+        let map_height = (available_height - 60.0).max(200.0);
 
-        let plot = Plot::new("track_map")
+        let mut plot = Plot::new("track_map")
             .height(map_height)
             .data_aspect(1.0)
             .x_axis_label("Longitude")
             .y_axis_label("Latitude")
             .show_axes(true)
             .show_grid(true);
+
+        if self.reset_plot {
+            plot = plot.reset();
+            self.reset_plot = false;
+        }
 
         plot.show(ui, |plot_ui| {
             for (ti, trk) in self.gpx.tracks.iter().enumerate() {
@@ -106,16 +338,42 @@ impl App {
                 }
             }
         });
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("Reset")
+                            .size(14.0)
+                            .color(Color32::WHITE),
+                    )
+                    .min_size(egui::Vec2::new(100.0, 40.0))
+                    .fill(Color32::from_rgb(100, 100, 120)),
+                )
+                .clicked()
+            {
+                self.reset_plot = true;
+            }
+        });
     }
 
     fn elevation_panel(&mut self, ui: &mut egui::Ui) {
         let track_color = Color32::from_rgb(66, 244, 133); // green
 
-        let plot = Plot::new("elevation_map")
+        let available_height = ui.available_size().y;
+        let plot_height = (available_height - 60.0).max(200.0);
+
+        let mut plot = Plot::new("elevation_map")
+            .height(plot_height)
             .x_axis_label("Distance (mi)")
             .y_axis_label("Feet")
             .show_axes(true)
             .show_grid(true);
+
+        if self.reset_plot {
+            plot = plot.reset();
+            self.reset_plot = false;
+        }
 
         plot.show(ui, |plot_ui| {
             let mut distance = 0.0;
@@ -151,21 +409,49 @@ impl App {
                 }
             }
         });
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("Reset")
+                            .size(14.0)
+                            .color(Color32::WHITE),
+                    )
+                    .min_size(egui::Vec2::new(100.0, 40.0))
+                    .fill(Color32::from_rgb(100, 100, 120)),
+                )
+                .clicked()
+            {
+                self.reset_plot = true;
+            }
+        });
     }
 }
 
 impl eframe::App for App {
     // called automatically every frame
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        Panel::top("top_panel").show_inside(ui, |ui| {
+        let frame = egui::Frame::default()
+            .fill(Color32::from_rgb(35, 35, 45))
+            .stroke(egui::Stroke::new(1.5, Color32::from_rgb(80, 80, 100)))
+            .inner_margin(egui::Margin::symmetric(10, 8));
+
+        Panel::top("top_panel").frame(frame).show_inside(ui, |ui| {
             self.top_panel(ui);
         });
 
         CentralPanel::default().show_inside(ui, |ui| {
-            self.map_panel(ui);
-            ui.separator();
-            self.elevation_panel(ui);
+            if self.show_map {
+                self.map_panel(ui);
+            } else {
+                self.elevation_panel(ui);
+            }
         });
+
+        let ctx = ui.ctx().clone();
+        self.import_dialog(&ctx);
+        self.handle_dropped_files(&ctx);
     }
 }
 
