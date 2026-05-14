@@ -18,6 +18,8 @@ pub struct App {
     name_buffer: String,
     import_dialog_open: bool,
     import_path: String,
+    import_text_dialog_open: bool,
+    import_text_buffer: String,
     import_error: Option<String>,
     show_map: bool,   // toggle between map and elevation plot
     reset_plot: bool, // flag to reset plot zoom/pan
@@ -40,6 +42,8 @@ impl App {
             name_buffer: String::new(),
             import_dialog_open: false,
             import_path: String::new(),
+            import_text_dialog_open: false,
+            import_text_buffer: String::new(),
             import_error: None,
             show_map: true,
             reset_plot: false,
@@ -178,7 +182,7 @@ impl App {
                 if ui
                     .add(
                         egui::Button::new(
-                            egui::RichText::new("Import Clipboard")
+                            egui::RichText::new("Import")
                                 .size(16.0)
                                 .color(Color32::from_rgb(255, 255, 255)),
                         )
@@ -188,29 +192,8 @@ impl App {
                     )
                     .clicked()
                 {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    {
-                        match arboard::Clipboard::new() {
-                            Ok(mut clipboard) => match clipboard.get_text() {
-                                Ok(text) => {
-                                    self.load_journey_string(text);
-                                }
-                                Err(e) => {
-                                    self.import_error =
-                                        Some(format!("Failed to read clipboard: {}", e));
-                                }
-                            },
-                            Err(e) => {
-                                self.import_error =
-                                    Some(format!("Failed to access clipboard: {}", e));
-                            }
-                        }
-                    }
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        self.import_error =
-                            Some("Clipboard import not available in browser".to_string());
-                    }
+                    self.import_text_dialog_open = true;
+                    self.import_text_buffer.clear();
                 }
                 if ui
                     .add(
@@ -271,6 +254,61 @@ impl App {
 
             if should_load {
                 self.load_gpx_file(load_path);
+            }
+        }
+    }
+
+    fn import_text_dialog(&mut self, ctx: &egui::Context) {
+        if self.import_text_dialog_open {
+            let mut should_load = false;
+            let mut load_text = String::new();
+            let mut should_close = false;
+
+            let mut open = self.import_text_dialog_open;
+            egui::Window::new("Import")
+                .open(&mut open)
+                .default_width(500.0)
+                .show(ctx, |ui| {
+                    ui.label("Paste the encoded string:");
+                    egui::ScrollArea::vertical()
+                        .max_height(200.0)
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.import_text_buffer)
+                                    .desired_rows(16),
+                            );
+                        });
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Ok").clicked() {
+                            if !self.import_text_buffer.trim().is_empty() {
+                                load_text = self.import_text_buffer.clone();
+                                should_load = true;
+                                should_close = true;
+                                self.import_text_buffer.clear();
+                                self.import_error = None;
+                            }
+                        }
+                        if ui.button("Cancel").clicked() {
+                            should_close = true;
+                            self.import_text_buffer.clear();
+                            self.import_error = None;
+                        }
+                    });
+
+                    if let Some(error) = &self.import_error {
+                        ui.colored_label(Color32::RED, error);
+                    }
+                });
+
+            self.import_text_dialog_open = open;
+
+            if should_load {
+                self.load_journey_string(load_text);
+            }
+
+            if should_close {
+                self.import_text_dialog_open = false;
             }
         }
     }
@@ -451,6 +489,7 @@ impl eframe::App for App {
 
         let ctx = ui.ctx().clone();
         self.import_dialog(&ctx);
+        self.import_text_dialog(&ctx);
         self.handle_dropped_files(&ctx);
     }
 }
