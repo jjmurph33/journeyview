@@ -44,8 +44,6 @@ impl App {
             load_filename: String::new(),
             import_open: false,
             import_buffer: String::new(),
-            export_open: false,
-            export_buffer: String::new(),
             status_text: String::new(),
             show_map: true,
             reset_plot: false,
@@ -98,7 +96,7 @@ impl App {
                 self.status_text = format!("Loaded {}", name);
             }
             Err(e) => {
-                self.status_text = format!("Failed to decode journey: {}", e);
+                self.status_text = String::from("Failed to decode journey");
             }
         }
     }
