@@ -16,11 +16,11 @@ pub struct App {
     name: String,
     name_editing: bool,
     name_buffer: String,
-    import_dialog_open: bool,
-    import_path: String,
-    import_text_dialog_open: bool,
-    import_text_buffer: String,
-    import_error: Option<String>,
+    load_open: bool,
+    load_filename: String,
+    import_open: bool,
+    import_buffer: String,
+    status_text: String,
     show_map: bool,   // toggle between map and elevation plot
     reset_plot: bool, // flag to reset plot zoom/pan
 }
@@ -40,11 +40,13 @@ impl App {
             diff_elevation,
             name_editing: false,
             name_buffer: String::new(),
-            import_dialog_open: false,
-            import_path: String::new(),
-            import_text_dialog_open: false,
-            import_text_buffer: String::new(),
-            import_error: None,
+            load_open: false,
+            load_filename: String::new(),
+            import_open: false,
+            import_buffer: String::new(),
+            export_open: false,
+            export_buffer: String::new(),
+            status_text: String::new(),
             show_map: true,
             reset_plot: false,
         }
@@ -69,17 +71,17 @@ impl App {
                             }
                         }
 
-                        self.import_error = None;
-                        self.import_dialog_open = false;
-                        self.import_path.clear();
+                        self.status_text = format!("Loaded {}", file_path);
+                        self.load_open = false;
+                        self.load_filename.clear();
                     }
                     Err(e) => {
-                        self.import_error = Some(format!("Failed to parse GPX file: {}", e));
+                        self.status_text = format!("Failed to parse GPX file: {}", e);
                     }
                 }
             }
             Err(e) => {
-                self.import_error = Some(format!("Failed to open file: {}", e));
+                self.status_text = format!("Failed to open file: {}", e);
             }
         }
     }
@@ -88,15 +90,15 @@ impl App {
         match journey::decode_journey(&encoded) {
             Ok((name, gpx)) => {
                 self.gpx = gpx;
-                self.name = name;
+                self.name = name.clone();
                 self.distance = km_to_mi(distance(&self.gpx));
                 self.min_elevation = m_to_ft(min_elevation(&self.gpx));
                 self.max_elevation = m_to_ft(max_elevation(&self.gpx));
                 self.diff_elevation = self.max_elevation - self.min_elevation;
-                self.import_error = None;
+                self.status_text = format!("Loaded {}", name);
             }
             Err(e) => {
-                self.import_error = Some(format!("Failed to decode journey: {}", e));
+                self.status_text = format!("Failed to decode journey: {}", e);
             }
         }
     }
@@ -177,7 +179,10 @@ impl App {
                     .clicked()
                 {
                     let export_string = journey::export(&self.gpx, &self.name);
-                    println!("{}\n", export_string);
+                    println!("{}\n", export_string.clone());
+                    if set_clipboard(export_string) {
+                        self.status_text = String::from("Copied to clipboard");
+                    }
                 }
                 if ui
                     .add(
@@ -192,8 +197,8 @@ impl App {
                     )
                     .clicked()
                 {
-                    self.import_text_dialog_open = true;
-                    self.import_text_buffer.clear();
+                    self.import_open = true;
+                    self.import_buffer.clear();
                 }
                 if ui
                     .add(
@@ -208,48 +213,49 @@ impl App {
                     )
                     .clicked()
                 {
-                    self.import_dialog_open = true;
+                    self.load_open = true;
                 }
             });
         });
     }
 
-    fn import_dialog(&mut self, ctx: &egui::Context) {
-        if self.import_dialog_open {
+    fn bottom_panel(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label(&self.status_text);
+        });
+    }
+
+    fn load_dialog(&mut self, ctx: &egui::Context) {
+        if self.load_open {
             let mut should_load = false;
             let mut load_path = String::new();
             let mut should_close = false;
 
-            let mut open = self.import_dialog_open;
-            egui::Window::new("Import GPX File")
+            let mut open = self.load_open;
+            egui::Window::new("Load GPX File")
                 .open(&mut open)
                 .show(ctx, |ui| {
                     ui.label("Enter file path:");
-                    ui.text_edit_singleline(&mut self.import_path);
+                    ui.text_edit_singleline(&mut self.load_filename);
 
                     ui.horizontal(|ui| {
                         if ui.button("Load").clicked() {
-                            if !self.import_path.is_empty() {
+                            if !self.load_filename.is_empty() {
                                 should_load = true;
-                                load_path = self.import_path.clone();
+                                load_path = self.load_filename.clone();
                             }
                         }
                         if ui.button("Cancel").clicked() {
                             should_close = true;
-                            self.import_path.clear();
-                            self.import_error = None;
+                            self.load_filename.clear();
                         }
                     });
-
-                    if let Some(error) = &self.import_error {
-                        ui.colored_label(Color32::RED, error);
-                    }
                 });
 
-            self.import_dialog_open = open;
+            self.load_open = open;
 
             if should_close {
-                self.import_dialog_open = false;
+                self.load_open = false;
             }
 
             if should_load {
@@ -258,13 +264,17 @@ impl App {
         }
     }
 
-    fn import_text_dialog(&mut self, ctx: &egui::Context) {
-        if self.import_text_dialog_open {
+    fn import_dialog(&mut self, ctx: &egui::Context) {
+        if self.import_open {
             let mut should_load = false;
             let mut load_text = String::new();
             let mut should_close = false;
 
-            let mut open = self.import_text_dialog_open;
+            if let Some(clipboard_text) = read_clipboard() {
+                self.import_buffer = clipboard_text;
+            }
+
+            let mut open = self.import_open;
             egui::Window::new("Import")
                 .open(&mut open)
                 .default_width(500.0)
@@ -274,41 +284,34 @@ impl App {
                         .max_height(200.0)
                         .show(ui, |ui| {
                             ui.add(
-                                egui::TextEdit::multiline(&mut self.import_text_buffer)
-                                    .desired_rows(16),
+                                egui::TextEdit::multiline(&mut self.import_buffer).desired_rows(16),
                             );
                         });
 
                     ui.horizontal(|ui| {
                         if ui.button("Ok").clicked() {
-                            if !self.import_text_buffer.trim().is_empty() {
-                                load_text = self.import_text_buffer.clone();
+                            if !self.import_buffer.trim().is_empty() {
+                                load_text = self.import_buffer.clone();
                                 should_load = true;
                                 should_close = true;
-                                self.import_text_buffer.clear();
-                                self.import_error = None;
+                                self.import_buffer.clear();
                             }
                         }
                         if ui.button("Cancel").clicked() {
                             should_close = true;
-                            self.import_text_buffer.clear();
-                            self.import_error = None;
+                            self.import_buffer.clear();
                         }
                     });
-
-                    if let Some(error) = &self.import_error {
-                        ui.colored_label(Color32::RED, error);
-                    }
                 });
 
-            self.import_text_dialog_open = open;
+            self.import_open = open;
 
             if should_load {
                 self.load_journey_string(load_text);
             }
 
             if should_close {
-                self.import_text_dialog_open = false;
+                self.import_open = false;
             }
         }
     }
@@ -323,14 +326,14 @@ impl App {
                     if ext.to_string_lossy().to_lowercase() == "gpx" {
                         self.load_gpx_file(path.to_string_lossy().to_string());
                     } else {
-                        self.import_error = Some(format!(
+                        self.status_text = format!(
                             "Invalid file type: {}. Please drop a .gpx file.",
                             ext.to_string_lossy()
-                        ));
+                        );
                     }
                 } else {
-                    self.import_error =
-                        Some("File has no extension. Please drop a .gpx file.".to_string());
+                    self.status_text =
+                        "File has no extension. Please drop a .gpx file.".to_string();
                 }
             }
         }
@@ -479,6 +482,12 @@ impl eframe::App for App {
             self.top_panel(ui);
         });
 
+        Panel::bottom("bottom_panel")
+            .frame(frame)
+            .show_inside(ui, |ui| {
+                self.bottom_panel(ui);
+            });
+
         CentralPanel::default().show_inside(ui, |ui| {
             if self.show_map {
                 self.map_panel(ui);
@@ -489,7 +498,7 @@ impl eframe::App for App {
 
         let ctx = ui.ctx().clone();
         self.import_dialog(&ctx);
-        self.import_text_dialog(&ctx);
+        self.load_dialog(&ctx);
         self.handle_dropped_files(&ctx);
     }
 }
@@ -563,4 +572,39 @@ fn km_to_mi(value: f64) -> f64 {
 
 fn m_to_ft(value: f64) -> f64 {
     value * 3.28084
+}
+
+fn read_clipboard() -> Option<String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        match arboard::Clipboard::new() {
+            Ok(mut clipboard) => match clipboard.get_text() {
+                Ok(text) => return Some(text),
+                Err(_) => return None,
+            },
+            Err(_) => return None,
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        return None;
+    }
+}
+
+fn set_clipboard(text: String) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+            match clipboard.set_text(text) {
+                Ok(_) => return true,
+                Err(_) => return false,
+            }
+        } else {
+            return false;
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        return false;
+    }
 }
