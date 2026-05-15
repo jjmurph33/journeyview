@@ -61,8 +61,11 @@ fn from_polyline(polyline: &str) -> Gpx {
 
 fn encode(name: &str, polyline: &str) -> String {
     let journey = Journey::new(name, polyline);
-    let bytes = postcard::to_allocvec(&journey).unwrap();
-    URL_SAFE.encode(&bytes)
+    if let Ok(bytes) = postcard::to_allocvec(&journey) {
+        return URL_SAFE.encode(&bytes);
+    } else {
+        return String::new();
+    }
 }
 
 pub fn decode(encoded: &str) -> Option<Journey> {

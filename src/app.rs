@@ -95,7 +95,7 @@ impl App {
                 self.diff_elevation = self.max_elevation - self.min_elevation;
                 self.status_text = format!("Loaded {}", name);
             }
-            Err(e) => {
+            Err(_) => {
                 self.status_text = String::from("Failed to decode journey");
             }
         }
@@ -589,6 +589,7 @@ fn read_clipboard() -> Option<String> {
     }
 }
 
+#[allow(unused_variables)]
 fn set_clipboard(text: String) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {

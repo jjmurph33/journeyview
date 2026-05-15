@@ -7,17 +7,6 @@ mod journey;
 use eframe;
 use eframe::egui;
 
-fn setup_dark_theme(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::dark();
-    visuals.panel_fill = egui::Color32::from_rgb(20, 20, 25);
-    visuals.window_fill = egui::Color32::from_rgb(25, 25, 30);
-    visuals.extreme_bg_color = egui::Color32::from_rgb(15, 15, 20);
-    visuals.faint_bg_color = egui::Color32::from_rgb(40, 40, 50);
-    visuals.weak_text_color = Some(egui::Color32::from_rgb(200, 200, 200));
-    visuals.override_text_color = Some(egui::Color32::from_rgb(240, 240, 245));
-    ctx.set_visuals(visuals);
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -86,4 +75,15 @@ fn main() {
             .await
             .expect("failed to start");
     });
+}
+
+fn setup_dark_theme(ctx: &egui::Context) {
+    let mut visuals = egui::Visuals::dark();
+    visuals.panel_fill = egui::Color32::from_rgb(20, 20, 25);
+    visuals.window_fill = egui::Color32::from_rgb(25, 25, 30);
+    visuals.extreme_bg_color = egui::Color32::from_rgb(15, 15, 20);
+    visuals.faint_bg_color = egui::Color32::from_rgb(40, 40, 50);
+    visuals.weak_text_color = Some(egui::Color32::from_rgb(200, 200, 200));
+    visuals.override_text_color = Some(egui::Color32::from_rgb(240, 240, 245));
+    ctx.set_visuals(visuals);
 }
