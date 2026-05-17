@@ -2,8 +2,6 @@ use eframe::egui;
 use egui::{CentralPanel, Color32, Panel, Ui};
 use egui_plot::{Line, Plot, PlotPoints};
 use gpx::Gpx;
-use std::fs;
-use std::io::BufReader;
 
 use crate::journey;
 
@@ -55,35 +53,21 @@ impl App {
         }
     }
 
-    fn load_gpx_file(&mut self, file_path: String) {
-        match fs::File::open(&file_path) {
-            Ok(file) => {
-                let reader = BufReader::new(file);
-                match gpx::read(reader) {
-                    Ok(gpx) => {
-                        self.gpx = gpx;
-                        self.distance = km_to_mi(distance(&self.gpx));
-                        self.min_elevation = m_to_ft(min_elevation(&self.gpx));
-                        self.max_elevation = m_to_ft(max_elevation(&self.gpx));
-                        self.diff_elevation = self.max_elevation - self.min_elevation;
-
-                        // Update name from metadata
-                        if let Some(metadata) = &self.gpx.metadata {
-                            if let Some(gpx_name) = &metadata.name {
-                                self.name = gpx_name.clone();
-                            }
-                        }
-                        self.status_text = format!("Loaded {}", file_path);
-                        self.mode = Mode::NORMAL;
-                        self.show_map = true;
-                    }
-                    Err(e) => {
-                        self.status_text = format!("Failed to parse GPX file: {}", e);
-                    }
-                }
+    fn load_file(&mut self, file_path: String) {
+        match journey::load_gpx_file(&file_path) {
+            Ok(gpx) => {
+                self.gpx = gpx;
+                self.distance = km_to_mi(distance(&self.gpx));
+                self.min_elevation = m_to_ft(min_elevation(&self.gpx));
+                self.max_elevation = m_to_ft(max_elevation(&self.gpx));
+                self.diff_elevation = self.max_elevation - self.min_elevation;
+                self.name = journey::name_from_gpx(&self.gpx);
+                self.status_text = format!("Loaded {}", file_path);
+                self.mode = Mode::NORMAL;
+                self.show_map = true;
             }
             Err(e) => {
-                self.status_text = format!("Failed to open file: {}", e);
+                self.status_text = format!("Failed to load GPX file: {}", e);
             }
         }
     }
@@ -244,7 +228,7 @@ impl App {
         ui.horizontal(|ui| {
             if ui.button("Load").clicked() {
                 if !self.load_buffer.is_empty() {
-                    self.load_gpx_file(self.load_buffer.clone());
+                    self.load_file(self.load_buffer.clone());
                     self.load_buffer.clear();
                 }
             }
@@ -284,7 +268,7 @@ impl App {
                 // Only process .gpx files
                 if let Some(ext) = path.extension() {
                     if ext.to_string_lossy().to_lowercase() == "gpx" {
-                        self.load_gpx_file(path.to_string_lossy().to_string());
+                        self.load_file(path.to_string_lossy().to_string());
                     } else {
                         self.status_text = format!(
                             "Invalid file type: {}. Please drop a .gpx file.",

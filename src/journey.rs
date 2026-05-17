@@ -3,6 +3,8 @@ use flexpolyline::Polyline;
 use geo_types::Point;
 use gpx::{Gpx, GpxVersion, Metadata, Track, TrackSegment, Waypoint};
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::BufReader;
 
 #[derive(Serialize, Deserialize)]
 pub struct Journey {
@@ -15,6 +17,26 @@ impl Journey {
         Journey {
             name: name.to_string(),
             polyline: polyline.to_string(),
+        }
+    }
+}
+
+pub fn load_gpx_file(file_path: &str) -> Result<Gpx, String> {
+    match fs::File::open(&file_path) {
+        Ok(file) => {
+            let reader = BufReader::new(file);
+            match gpx::read(reader) {
+                Ok(gpx) => {
+                    //println!("{:?}", gpx);
+                    return Ok(gpx);
+                }
+                Err(e) => {
+                    return Err(format!("Failed to parse GPX file: {}", e));
+                }
+            }
+        }
+        Err(e) => {
+            return Err(format!("Failed to open file: {}", e));
         }
     }
 }
@@ -81,8 +103,6 @@ pub fn decode(encoded: &str) -> Option<Journey> {
 
 pub fn export(name: &str, gpx: &Gpx) -> String {
     let polyline = to_polyline(&gpx);
-    //let metadata = gpx.metadata.as_ref().unwrap();
-    //let name = metadata.name.as_ref().unwrap().clone();
     let journey_string = encode(&name, &polyline);
     journey_string
 }
@@ -98,6 +118,15 @@ pub fn import(journey_string: &str) -> Result<(String, Gpx), String> {
     } else {
         Err(String::from("Not a valid Journey"))
     }
+}
+
+pub fn name_from_gpx(gpx: &Gpx) -> String {
+    if let Some(metadata) = &gpx.metadata {
+        if let Some(name) = &metadata.name {
+            return name.clone();
+        }
+    }
+    return String::new();
 }
 
 pub fn import_sample() -> Gpx {
