@@ -8,6 +8,7 @@ use eframe;
 use eframe::egui;
 
 #[cfg(not(target_arch = "wasm32"))]
+// native entry point
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
@@ -18,13 +19,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
 
-    let gpx = journey::import_sample();
-    let mut name = String::from("My Journey");
-    if let Some(metadata) = &gpx.metadata {
-        if let Some(gpx_name) = &metadata.name {
-            name = gpx_name.clone();
-        }
-    }
+    let (name, gpx) = journey::import_sample().unwrap();
 
     eframe::run_native(
         "Journey View",
@@ -37,9 +32,17 @@ fn main() -> eframe::Result {
 }
 
 #[cfg(target_arch = "wasm32")]
+// like println! but for the browser console
+macro_rules! console {
+    ($($t:tt)*) => {
+        web_sys::console::log_1(&format!($($t)*).into())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+// wasm entry point
 fn main() {
     use wasm_bindgen::JsCast;
-
     console_error_panic_hook::set_once();
 
     wasm_bindgen_futures::spawn_local(async {
@@ -55,13 +58,24 @@ fn main() {
 
         let web_options = eframe::WebOptions::default();
 
-        let gpx = journey::import_sample();
-        let mut name = String::from("My Journey");
-        if let Some(metadata) = &gpx.metadata {
-            if let Some(gpx_name) = &metadata.name {
-                name = gpx_name.clone();
+        let (mut name, mut gpx) = journey::import_sample().unwrap();
+
+        if let Ok(search) = window.location().search() {
+            if let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search) {
+                if let Some(journey_string) = params.get("j") {
+                    match journey::import(&journey_string) {
+                        Ok((qstring_name, qstring_gpx)) => {
+                            name = qstring_name.clone();
+                            gpx = qstring_gpx.clone();
+                            console!("New journey: {}", name);
+                        }
+                        Err(_) => {
+                            console!("Failed to decode journey");
+                        }
+                    }
+                }
             }
-        }
+        };
 
         eframe::WebRunner::new()
             .start(
