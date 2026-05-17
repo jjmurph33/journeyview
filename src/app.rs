@@ -7,6 +7,13 @@ use std::io::BufReader;
 
 use crate::journey;
 
+enum Mode {
+    NORMAL,
+    LOAD,
+    IMPORT,
+    EXPORT,
+}
+
 pub struct App {
     gpx: Gpx,
     distance: f64,       // miles
@@ -16,13 +23,12 @@ pub struct App {
     name: String,
     name_editing: bool,
     name_buffer: String,
-    load_open: bool,
-    load_filename: String,
-    import_open: bool,
+    load_buffer: String,
     import_buffer: String,
     status_text: String,
     show_map: bool,   // toggle between map and elevation plot
     reset_plot: bool, // flag to reset plot zoom/pan
+    mode: Mode,
 }
 
 impl App {
@@ -40,13 +46,12 @@ impl App {
             diff_elevation,
             name_editing: false,
             name_buffer: String::new(),
-            load_open: false,
-            load_filename: String::new(),
-            import_open: false,
+            load_buffer: String::new(),
             import_buffer: String::new(),
             status_text: String::new(),
             show_map: true,
             reset_plot: false,
+            mode: Mode::NORMAL,
         }
     }
 
@@ -68,10 +73,9 @@ impl App {
                                 self.name = gpx_name.clone();
                             }
                         }
-
                         self.status_text = format!("Loaded {}", file_path);
-                        self.load_open = false;
-                        self.load_filename.clear();
+                        self.mode = Mode::NORMAL;
+                        self.show_map = true;
                     }
                     Err(e) => {
                         self.status_text = format!("Failed to parse GPX file: {}", e);
@@ -84,8 +88,8 @@ impl App {
         }
     }
 
-    fn load_journey_string(&mut self, encoded: String) {
-        match journey::decode_journey(&encoded) {
+    fn load_journey_string(&mut self, journey_string: String) {
+        match journey::import(&journey_string) {
             Ok((name, gpx)) => {
                 self.gpx = gpx;
                 self.name = name.clone();
@@ -104,6 +108,7 @@ impl App {
     fn top_panel(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
+                //////////// Name label ////////////////////////
                 if self.name_editing {
                     if self.name_buffer.is_empty() {
                         self.name_buffer = self.name.clone();
@@ -130,7 +135,7 @@ impl App {
                         self.name_buffer = self.name.clone();
                     }
                 }
-
+                ///////////////////// Info labels /////////////////////
                 ui.label(
                     egui::RichText::new(format!("Distance: {:.1}mi", self.distance))
                         .size(18.0)
@@ -145,8 +150,8 @@ impl App {
                     .color(Color32::from_rgb(210, 210, 220)),
                 );
             });
-
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ///////////////////// Map/Elevation button /////////////////////
                 if ui
                     .add(
                         egui::Button::new(
@@ -162,7 +167,8 @@ impl App {
                 {
                     self.show_map = !self.show_map;
                 }
-
+                ui.add_space(10.0);
+                ///////////////////// Export button ////////////////////////
                 if ui
                     .add(
                         egui::Button::new(
@@ -176,12 +182,15 @@ impl App {
                     )
                     .clicked()
                 {
-                    let export_string = journey::export(&self.gpx, &self.name);
+                    // TODO: set mode to EXPORT for new panel
+                    let export_string = journey::export(&self.name, &self.gpx);
                     println!("{}\n", export_string.clone());
                     if set_clipboard(export_string) {
                         self.status_text = String::from("Copied to clipboard");
                     }
                 }
+                ///////////////////// Import button ////////////////////////
+                ui.add_space(10.0);
                 if ui
                     .add(
                         egui::Button::new(
@@ -195,9 +204,14 @@ impl App {
                     )
                     .clicked()
                 {
-                    self.import_open = true;
-                    self.import_buffer.clear();
+                    self.mode = Mode::IMPORT;
+                    if let Some(clipboard_text) = read_clipboard() {
+                        self.import_buffer = clipboard_text;
+                    } else {
+                        self.import_buffer.clear();
+                    }
                 }
+                ///////////////////// Load button ////////////////////////
                 if ui
                     .add(
                         egui::Button::new(
@@ -211,7 +225,8 @@ impl App {
                     )
                     .clicked()
                 {
-                    self.load_open = true;
+                    self.mode = Mode::LOAD;
+                    self.load_buffer.clear();
                 }
             });
         });
@@ -223,100 +238,47 @@ impl App {
         });
     }
 
-    fn load_dialog(&mut self, ctx: &egui::Context) {
-        if self.load_open {
-            let mut should_load = false;
-            let mut load_path = String::new();
-            let mut should_close = false;
-
-            let mut open = self.load_open;
-            egui::Window::new("Load GPX File")
-                .open(&mut open)
-                .show(ctx, |ui| {
-                    ui.label("Enter file path:");
-                    ui.text_edit_singleline(&mut self.load_filename);
-
-                    ui.horizontal(|ui| {
-                        if ui.button("Load").clicked() {
-                            if !self.load_filename.is_empty() {
-                                should_load = true;
-                                load_path = self.load_filename.clone();
-                            }
-                        }
-                        if ui.button("Cancel").clicked() {
-                            should_close = true;
-                            self.load_filename.clear();
-                        }
-                    });
-                });
-
-            self.load_open = open;
-
-            if should_close {
-                self.load_open = false;
+    fn load_panel(&mut self, ui: &mut egui::Ui) {
+        ui.label("Enter file path:");
+        ui.text_edit_singleline(&mut self.load_buffer);
+        ui.horizontal(|ui| {
+            if ui.button("Load").clicked() {
+                if !self.load_buffer.is_empty() {
+                    self.load_gpx_file(self.load_buffer.clone());
+                    self.load_buffer.clear();
+                }
             }
-
-            if should_load {
-                self.load_gpx_file(load_path);
+            if ui.button("Cancel").clicked() {
+                self.mode = Mode::NORMAL;
+                self.load_buffer.clear();
             }
-        }
+        });
     }
 
-    fn import_dialog(&mut self, ctx: &egui::Context) {
-        if self.import_open {
-            let mut should_load = false;
-            let mut load_text = String::new();
-            let mut should_close = false;
-
-            if let Some(clipboard_text) = read_clipboard() {
-                self.import_buffer = clipboard_text;
+    fn import_panel(&mut self, ui: &mut egui::Ui) {
+        ui.label("Paste the encoded string:");
+        egui::ScrollArea::vertical()
+            .max_height(200.0)
+            .show(ui, |ui| {
+                ui.add(egui::TextEdit::multiline(&mut self.import_buffer).desired_rows(16));
+            });
+        ui.horizontal(|ui| {
+            if ui.button("Ok").clicked() {
+                if !self.import_buffer.trim().is_empty() {
+                    self.load_journey_string(self.import_buffer.clone());
+                    self.import_buffer.clear();
+                    self.mode = Mode::NORMAL;
+                }
             }
-
-            let mut open = self.import_open;
-            egui::Window::new("Import")
-                .open(&mut open)
-                .default_width(500.0)
-                .show(ctx, |ui| {
-                    ui.label("Paste the encoded string:");
-                    egui::ScrollArea::vertical()
-                        .max_height(200.0)
-                        .show(ui, |ui| {
-                            ui.add(
-                                egui::TextEdit::multiline(&mut self.import_buffer).desired_rows(16),
-                            );
-                        });
-
-                    ui.horizontal(|ui| {
-                        if ui.button("Ok").clicked() {
-                            if !self.import_buffer.trim().is_empty() {
-                                load_text = self.import_buffer.clone();
-                                should_load = true;
-                                should_close = true;
-                                self.import_buffer.clear();
-                            }
-                        }
-                        if ui.button("Cancel").clicked() {
-                            should_close = true;
-                            self.import_buffer.clear();
-                        }
-                    });
-                });
-
-            self.import_open = open;
-
-            if should_load {
-                self.load_journey_string(load_text);
+            if ui.button("Cancel").clicked() {
+                self.mode = Mode::NORMAL;
+                self.import_buffer.clear();
             }
-
-            if should_close {
-                self.import_open = false;
-            }
-        }
+        });
     }
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
-
         for file in dropped_files {
             if let Some(path) = file.path {
                 // Only process .gpx files
@@ -339,7 +301,6 @@ impl App {
 
     fn map_panel(&mut self, ui: &mut egui::Ui) {
         let track_color = Color32::from_rgb(66, 133, 244); // blue
-
         let available_height = ui.available_size().y;
         let map_height = (available_height - 60.0).max(200.0);
 
@@ -398,7 +359,6 @@ impl App {
 
     fn elevation_panel(&mut self, ui: &mut egui::Ui) {
         let track_color = Color32::from_rgb(66, 244, 133); // green
-
         let available_height = ui.available_size().y;
         let plot_height = (available_height - 60.0).max(200.0);
 
@@ -428,7 +388,6 @@ impl App {
                             distance += haversine_distance(prev_lat, prev_lon, lat, lon);
                         }
                         prev = Some((lat, lon));
-
                         let x = km_to_mi(distance);
                         let y = m_to_ft(p.elevation.unwrap_or(0.0));
                         pts_vec.push([x, y]);
@@ -486,18 +445,20 @@ impl eframe::App for App {
                 self.bottom_panel(ui);
             });
 
-        CentralPanel::default().show_inside(ui, |ui| {
-            if self.show_map {
-                self.map_panel(ui);
-            } else {
-                self.elevation_panel(ui);
+        CentralPanel::default().show_inside(ui, |ui| match self.mode {
+            Mode::NORMAL => {
+                if self.show_map {
+                    self.map_panel(ui);
+                } else {
+                    self.elevation_panel(ui);
+                }
+                let ctx = ui.ctx().clone();
+                self.handle_dropped_files(&ctx);
             }
+            Mode::LOAD => self.load_panel(ui),
+            Mode::IMPORT => self.import_panel(ui),
+            Mode::EXPORT => todo!("export panel"),
         });
-
-        let ctx = ui.ctx().clone();
-        self.import_dialog(&ctx);
-        self.load_dialog(&ctx);
-        self.handle_dropped_files(&ctx);
     }
 }
 

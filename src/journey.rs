@@ -34,7 +34,6 @@ fn to_polyline(gpx: &Gpx) -> String {
         precision3d: flexpolyline::Precision::Digits0,
         type3d: flexpolyline::Type3d::Elevation,
     };
-
     polyline.encode().unwrap_or(String::new())
 }
 
@@ -80,6 +79,27 @@ pub fn decode(encoded: &str) -> Option<Journey> {
     };
 }
 
+pub fn export(name: &str, gpx: &Gpx) -> String {
+    let polyline = to_polyline(&gpx);
+    //let metadata = gpx.metadata.as_ref().unwrap();
+    //let name = metadata.name.as_ref().unwrap().clone();
+    let journey_string = encode(&name, &polyline);
+    journey_string
+}
+
+pub fn import(journey_string: &str) -> Result<(String, Gpx), String> {
+    if let Some(journey) = decode(journey_string) {
+        let name = journey.name.clone();
+        let mut metadata = Metadata::default();
+        metadata.name = Some(name.clone());
+        let mut gpx = from_polyline(&journey.polyline);
+        gpx.metadata = Some(metadata);
+        Ok((name, gpx))
+    } else {
+        Err(String::from("Not a valid Journey"))
+    }
+}
+
 pub fn import_sample() -> Gpx {
     if let Some(journey) = decode(SAMPLE_JOURNEY) {
         let name = Some(journey.name);
@@ -92,27 +112,6 @@ pub fn import_sample() -> Gpx {
         let mut gpx: Gpx = Default::default();
         gpx.version = GpxVersion::Gpx11;
         return gpx;
-    }
-}
-
-pub fn export(gpx: &Gpx, name: &str) -> String {
-    let polyline = to_polyline(&gpx);
-    //let metadata = gpx.metadata.as_ref().unwrap();
-    //let name = metadata.name.as_ref().unwrap().clone();
-    let journey_encoded = encode(&name, &polyline);
-    journey_encoded
-}
-
-pub fn decode_journey(encoded: &str) -> Result<(String, Gpx), String> {
-    if let Some(journey) = decode(encoded) {
-        let name = journey.name.clone();
-        let mut metadata = Metadata::default();
-        metadata.name = Some(name.clone());
-        let mut gpx = from_polyline(&journey.polyline);
-        gpx.metadata = Some(metadata);
-        Ok((name, gpx))
-    } else {
-        Err(String::from("Not a valid Journey"))
     }
 }
 
