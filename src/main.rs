@@ -1,5 +1,5 @@
 // cargo run for native
-// trunk serve --open for web
+// run-trunk.sh for web
 
 mod app;
 mod journey;

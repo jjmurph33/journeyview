@@ -199,21 +199,48 @@ impl App {
     }
 
     fn import_panel(&mut self, ui: &mut egui::Ui) {
-        ui.label("Paste the encoded string:");
-        egui::ScrollArea::vertical()
-            .max_height(200.0)
-            .show(ui, |ui| {
-                ui.add(egui::TextEdit::multiline(&mut self.import_buffer).desired_rows(16));
-            });
+        ui.label("Journey Code:");
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.add(
+                egui::TextEdit::multiline(&mut self.import_buffer)
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(30)
+                    .hint_text(String::from("paste here")),
+            );
+        });
         ui.horizontal(|ui| {
-            if ui.button("Ok").clicked() {
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("Import")
+                            .size(16.0)
+                            .color(Color32::from_rgb(255, 255, 255)),
+                    )
+                    .min_size(egui::Vec2::new(150.0, 50.0))
+                    .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                    .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                )
+                .clicked()
+            {
                 if !self.import_buffer.trim().is_empty() {
                     self.load_journey_string(self.import_buffer.clone());
                     self.import_buffer.clear();
                     self.mode = Mode::NORMAL;
                 }
             }
-            if ui.button("Cancel").clicked() {
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("Cancel")
+                            .size(16.0)
+                            .color(Color32::from_rgb(255, 255, 255)),
+                    )
+                    .min_size(egui::Vec2::new(150.0, 50.0))
+                    .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                    .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                )
+                .clicked()
+            {
                 self.mode = Mode::NORMAL;
                 self.import_buffer.clear();
             }
@@ -221,15 +248,48 @@ impl App {
     }
 
     fn export_panel(&mut self, ui: &mut egui::Ui) {
-        let mut export_string = journey::export(&self.name, &self.gpx);
-        ui.label("Exporting:");
-        egui::ScrollArea::vertical()
-            .max_height(200.0)
-            .show(ui, |ui| {
-                ui.add(egui::TextEdit::multiline(&mut export_string).desired_rows(16));
-            });
+        let export_string = journey::export(&self.name, &self.gpx);
+        let id = egui::Id::new("export_text");
+        let initialized = ui.memory(|m| m.data.get_temp::<bool>(id)).unwrap_or(false);
+        ui.label("Journey Code:");
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.add(
+                egui::TextEdit::multiline(&mut export_string.as_str())
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(30)
+                    .id(id),
+            );
+            // select all of the text
+            if !initialized {
+                let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+                state
+                    .cursor
+                    .set_char_range(Some(egui::text::CCursorRange::two(
+                        egui::text::CCursor::new(0),
+                        egui::text::CCursor::new(export_string.chars().count()),
+                    )));
+                state.store(ui.ctx(), id);
+                ui.memory_mut(|m| {
+                    m.request_focus(id);
+                    // set initialized flag
+                    m.data.insert_temp(id, true);
+                });
+            }
+        });
         ui.horizontal(|ui| {
-            if ui.button("Ok").clicked() {
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("Copy to clipboard")
+                            .size(16.0)
+                            .color(Color32::from_rgb(255, 255, 255)),
+                    )
+                    .min_size(egui::Vec2::new(150.0, 50.0))
+                    .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                    .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                )
+                .clicked()
+            {
                 if !export_string.trim().is_empty() {
                     println!("{}\n", export_string.clone());
                     if set_clipboard(export_string) {
@@ -238,7 +298,19 @@ impl App {
                     self.mode = Mode::NORMAL;
                 }
             }
-            if ui.button("Cancel").clicked() {
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("Cancel")
+                            .size(16.0)
+                            .color(Color32::from_rgb(255, 255, 255)),
+                    )
+                    .min_size(egui::Vec2::new(150.0, 50.0))
+                    .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                    .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                )
+                .clicked()
+            {
                 self.mode = Mode::NORMAL;
             }
         });
