@@ -25,7 +25,7 @@ pub struct App {
     import_buffer: String,
     status_text: String,
     show_map: bool,   // toggle between map and elevation plot
-    reset_plot: bool, // flag to reset plot zoom/pan
+    reset_plot: bool, // reset plot zoom/pan
     mode: Mode,
 }
 
@@ -50,42 +50,6 @@ impl App {
             show_map: true,
             reset_plot: false,
             mode: Mode::NORMAL,
-        }
-    }
-
-    fn load_file(&mut self, file_path: String) {
-        match journey::load_gpx_file(&file_path) {
-            Ok(gpx) => {
-                self.gpx = gpx;
-                self.distance = km_to_mi(distance(&self.gpx));
-                self.min_elevation = m_to_ft(min_elevation(&self.gpx));
-                self.max_elevation = m_to_ft(max_elevation(&self.gpx));
-                self.diff_elevation = self.max_elevation - self.min_elevation;
-                self.name = journey::name_from_gpx(&self.gpx);
-                self.status_text = format!("Loaded {}", file_path);
-                self.mode = Mode::NORMAL;
-                self.show_map = true;
-            }
-            Err(e) => {
-                self.status_text = format!("Failed to load GPX file: {}", e);
-            }
-        }
-    }
-
-    fn load_journey_string(&mut self, journey_string: String) {
-        match journey::import(&journey_string) {
-            Ok((name, gpx)) => {
-                self.gpx = gpx;
-                self.name = name.clone();
-                self.distance = km_to_mi(distance(&self.gpx));
-                self.min_elevation = m_to_ft(min_elevation(&self.gpx));
-                self.max_elevation = m_to_ft(max_elevation(&self.gpx));
-                self.diff_elevation = self.max_elevation - self.min_elevation;
-                self.status_text = format!("Loaded {}", name);
-            }
-            Err(_) => {
-                self.status_text = String::from("Failed to decode journey");
-            }
         }
     }
 
@@ -166,12 +130,7 @@ impl App {
                     )
                     .clicked()
                 {
-                    // TODO: set mode to EXPORT for new panel
-                    let export_string = journey::export(&self.name, &self.gpx);
-                    println!("{}\n", export_string.clone());
-                    if set_clipboard(export_string) {
-                        self.status_text = String::from("Copied to clipboard");
-                    }
+                    self.mode = Mode::EXPORT;
                 }
                 ///////////////////// Import button ////////////////////////
                 ui.add_space(10.0);
@@ -261,26 +220,28 @@ impl App {
         });
     }
 
-    fn handle_dropped_files(&mut self, ctx: &egui::Context) {
-        let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
-        for file in dropped_files {
-            if let Some(path) = file.path {
-                // Only process .gpx files
-                if let Some(ext) = path.extension() {
-                    if ext.to_string_lossy().to_lowercase() == "gpx" {
-                        self.load_file(path.to_string_lossy().to_string());
-                    } else {
-                        self.status_text = format!(
-                            "Invalid file type: {}. Please drop a .gpx file.",
-                            ext.to_string_lossy()
-                        );
+    fn export_panel(&mut self, ui: &mut egui::Ui) {
+        let mut export_string = journey::export(&self.name, &self.gpx);
+        ui.label("Exporting:");
+        egui::ScrollArea::vertical()
+            .max_height(200.0)
+            .show(ui, |ui| {
+                ui.add(egui::TextEdit::multiline(&mut export_string).desired_rows(16));
+            });
+        ui.horizontal(|ui| {
+            if ui.button("Ok").clicked() {
+                if !export_string.trim().is_empty() {
+                    println!("{}\n", export_string.clone());
+                    if set_clipboard(export_string) {
+                        self.status_text = String::from("Copied to clipboard");
                     }
-                } else {
-                    self.status_text =
-                        "File has no extension. Please drop a .gpx file.".to_string();
+                    self.mode = Mode::NORMAL;
                 }
             }
-        }
+            if ui.button("Cancel").clicked() {
+                self.mode = Mode::NORMAL;
+            }
+        });
     }
 
     fn map_panel(&mut self, ui: &mut egui::Ui) {
@@ -409,6 +370,64 @@ impl App {
             }
         });
     }
+
+    fn load_file(&mut self, file_path: String) {
+        match journey::load_gpx_file(&file_path) {
+            Ok(gpx) => {
+                self.gpx = gpx;
+                self.distance = km_to_mi(distance(&self.gpx));
+                self.min_elevation = m_to_ft(min_elevation(&self.gpx));
+                self.max_elevation = m_to_ft(max_elevation(&self.gpx));
+                self.diff_elevation = self.max_elevation - self.min_elevation;
+                self.name = journey::name_from_gpx(&self.gpx);
+                self.status_text = format!("Loaded {}", file_path);
+                self.mode = Mode::NORMAL;
+                self.show_map = true;
+            }
+            Err(e) => {
+                self.status_text = format!("Failed to load GPX file: {}", e);
+            }
+        }
+    }
+
+    fn load_journey_string(&mut self, journey_string: String) {
+        match journey::import(&journey_string) {
+            Ok((name, gpx)) => {
+                self.gpx = gpx;
+                self.name = name.clone();
+                self.distance = km_to_mi(distance(&self.gpx));
+                self.min_elevation = m_to_ft(min_elevation(&self.gpx));
+                self.max_elevation = m_to_ft(max_elevation(&self.gpx));
+                self.diff_elevation = self.max_elevation - self.min_elevation;
+                self.status_text = format!("Loaded {}", name);
+            }
+            Err(_) => {
+                self.status_text = String::from("Failed to decode journey");
+            }
+        }
+    }
+
+    fn handle_dropped_files(&mut self, ctx: &egui::Context) {
+        let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
+        for file in dropped_files {
+            if let Some(path) = file.path {
+                // Only process .gpx files
+                if let Some(ext) = path.extension() {
+                    if ext.to_string_lossy().to_lowercase() == "gpx" {
+                        self.load_file(path.to_string_lossy().to_string());
+                    } else {
+                        self.status_text = format!(
+                            "Invalid file type: {}. Please drop a .gpx file.",
+                            ext.to_string_lossy()
+                        );
+                    }
+                } else {
+                    self.status_text =
+                        "File has no extension. Please drop a .gpx file.".to_string();
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for App {
@@ -441,7 +460,7 @@ impl eframe::App for App {
             }
             Mode::LOAD => self.load_panel(ui),
             Mode::IMPORT => self.import_panel(ui),
-            Mode::EXPORT => todo!("export panel"),
+            Mode::EXPORT => self.export_panel(ui),
         });
     }
 }
