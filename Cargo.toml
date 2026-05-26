@@ -1,5 +1,5 @@
 [package]
-name = "gpxviewer"
+name = "journeyview"
 version = "0.1.0"
 edition = "2024"
 
