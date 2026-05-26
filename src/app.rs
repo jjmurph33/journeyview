@@ -1,9 +1,14 @@
 use eframe::egui;
-use egui::{CentralPanel, Color32, Panel, Ui};
+use egui::{
+    CentralPanel, Color32, ColorImage, FontFamily, FontId, Panel, TextureHandle, TextureOptions, Ui,
+};
 use egui_plot::{Line, Plot, PlotPoints};
 use gpx::Gpx;
+use qrcode::QrCode;
 
 use crate::journey;
+
+static BUTTON_TEXT_SIZE: f32 = 22.0;
 
 enum Mode {
     NORMAL,
@@ -27,10 +32,13 @@ pub struct App {
     show_map: bool,   // toggle between map and elevation plot
     reset_plot: bool, // reset plot zoom/pan
     mode: Mode,
+    export_string: String,
+    qrcode: Option<TextureHandle>,
+    url: Option<String>,
 }
 
 impl App {
-    pub fn new(gpx: Gpx, name: String) -> Self {
+    pub fn new(gpx: Gpx, name: String, url: Option<String>) -> Self {
         let distance = km_to_mi(distance(&gpx));
         let min_elevation = m_to_ft(min_elevation(&gpx));
         let max_elevation = m_to_ft(max_elevation(&gpx));
@@ -50,7 +58,23 @@ impl App {
             show_map: true,
             reset_plot: false,
             mode: Mode::NORMAL,
+            export_string: String::new(),
+            qrcode: None,
+            url,
         }
+    }
+
+    fn reset_ui(&mut self) {
+        self.mode = Mode::NORMAL;
+        self.show_map = true;
+        self.name_editing = false;
+        self.name_buffer.clear();
+        self.load_buffer.clear();
+        self.import_buffer.clear();
+        self.status_text.clear();
+        self.reset_plot = false;
+        self.export_string.clear();
+        self.qrcode = None;
     }
 
     fn top_panel(&mut self, ui: &mut egui::Ui) {
@@ -99,29 +123,12 @@ impl App {
                 );
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ///////////////////// Map/Elevation button /////////////////////
-                if ui
-                    .add(
-                        egui::Button::new(
-                            egui::RichText::new(if self.show_map { "Elevation" } else { "Map" })
-                                .size(16.0)
-                                .color(Color32::from_rgb(255, 255, 255)),
-                        )
-                        .min_size(egui::Vec2::new(150.0, 50.0))
-                        .fill(Color32::from_rgb(76, 175, 80)) // Green
-                        .stroke(egui::Stroke::new(2.0, Color32::from_rgb(56, 142, 60))),
-                    )
-                    .clicked()
-                {
-                    self.show_map = !self.show_map;
-                }
-                ui.add_space(10.0);
                 ///////////////////// Export button ////////////////////////
                 if ui
                     .add(
                         egui::Button::new(
                             egui::RichText::new("Export")
-                                .size(16.0)
+                                .size(BUTTON_TEXT_SIZE)
                                 .color(Color32::from_rgb(255, 255, 255)),
                         )
                         .min_size(egui::Vec2::new(150.0, 50.0))
@@ -133,12 +140,11 @@ impl App {
                     self.mode = Mode::EXPORT;
                 }
                 ///////////////////// Import button ////////////////////////
-                ui.add_space(10.0);
                 if ui
                     .add(
                         egui::Button::new(
                             egui::RichText::new("Import")
-                                .size(16.0)
+                                .size(BUTTON_TEXT_SIZE)
                                 .color(Color32::from_rgb(255, 255, 255)),
                         )
                         .min_size(egui::Vec2::new(150.0, 50.0))
@@ -159,7 +165,7 @@ impl App {
                     .add(
                         egui::Button::new(
                             egui::RichText::new("Load File")
-                                .size(16.0)
+                                .size(BUTTON_TEXT_SIZE)
                                 .color(Color32::from_rgb(255, 255, 255)),
                         )
                         .min_size(egui::Vec2::new(150.0, 50.0))
@@ -248,15 +254,38 @@ impl App {
     }
 
     fn export_panel(&mut self, ui: &mut egui::Ui) {
-        let export_string = journey::export(&self.name, &self.gpx);
+        if self.export_string.is_empty() {
+            self.export_string = journey::export(&self.name, &self.gpx);
+            let include_url = true; //TODO: make this a radio button
+            if include_url && !self.export_string.is_empty() {
+                if self.url.is_some() {
+                    let export_url = format!("{}/?j=", self.url.as_ref().unwrap());
+                    self.export_string.insert_str(0, &export_url);
+                }
+            }
+        }
+
+        if self.qrcode.is_none() {
+            if !self.export_string.is_empty() {
+                self.qrcode = Some(qr_to_texture(ui.ctx(), &self.export_string));
+            }
+        }
+
         let id = egui::Id::new("export_text");
         let initialized = ui.memory(|m| m.data.get_temp::<bool>(id)).unwrap_or(false);
-        ui.label("Journey Code:");
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add(
-                egui::TextEdit::multiline(&mut export_string.as_str())
+
+        let mut size = ui.available_size();
+        size.x = size.x / 2.0;
+        //size.y = size.y * 0.75;
+        size.y -= 80.0;
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+            ui.add_sized(
+                size,
+                egui::TextEdit::multiline(&mut self.export_string.as_str())
+                    .font(FontId::new(18.0, FontFamily::Proportional))
                     .desired_width(f32::INFINITY)
-                    .desired_rows(30)
+                    .desired_rows(20)
                     .id(id),
             );
             // select all of the text
@@ -266,7 +295,7 @@ impl App {
                     .cursor
                     .set_char_range(Some(egui::text::CCursorRange::two(
                         egui::text::CCursor::new(0),
-                        egui::text::CCursor::new(export_string.chars().count()),
+                        egui::text::CCursor::new(self.export_string.clone().chars().count()),
                     )));
                 state.store(ui.ctx(), id);
                 ui.memory_mut(|m| {
@@ -275,29 +304,15 @@ impl App {
                     m.data.insert_temp(id, true);
                 });
             }
-        });
-        ui.horizontal(|ui| {
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new("Copy to clipboard")
-                            .size(16.0)
-                            .color(Color32::from_rgb(255, 255, 255)),
-                    )
-                    .min_size(egui::Vec2::new(150.0, 50.0))
-                    .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                    .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
-                )
-                .clicked()
-            {
-                if !export_string.trim().is_empty() {
-                    println!("{}\n", export_string.clone());
-                    if set_clipboard(export_string) {
-                        self.status_text = String::from("Copied to clipboard");
-                    }
-                    self.mode = Mode::NORMAL;
-                }
+
+            if let Some(texture) = &self.qrcode {
+                ui.add_sized(size, egui::Image::new(texture).shrink_to_fit());
+            } else {
+                ui.add_sized(size, egui::Label::new("Error Generating QRCode"));
             }
+        });
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
                 .add(
                     egui::Button::new(
@@ -312,6 +327,27 @@ impl App {
                 .clicked()
             {
                 self.mode = Mode::NORMAL;
+            }
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("Copy to clipboard")
+                            .size(16.0)
+                            .color(Color32::from_rgb(255, 255, 255)),
+                    )
+                    .min_size(egui::Vec2::new(150.0, 50.0))
+                    .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                    .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                )
+                .clicked()
+            {
+                if !self.export_string.trim().is_empty() {
+                    println!("{}\n", self.export_string.clone());
+                    if set_clipboard(self.export_string.clone()) {
+                        self.status_text = String::from("Copied to clipboard");
+                    }
+                    self.mode = Mode::NORMAL;
+                }
             }
         });
     }
@@ -356,22 +392,7 @@ impl App {
             }
         });
 
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new("Reset")
-                            .size(14.0)
-                            .color(Color32::WHITE),
-                    )
-                    .min_size(egui::Vec2::new(100.0, 40.0))
-                    .fill(Color32::from_rgb(100, 100, 120)),
-                )
-                .clicked()
-            {
-                self.reset_plot = true;
-            }
-        });
+        self.map_buttons(ui);
     }
 
     fn elevation_panel(&mut self, ui: &mut egui::Ui) {
@@ -425,16 +446,38 @@ impl App {
             }
         });
 
+        self.map_buttons(ui);
+    }
+
+    fn map_buttons(&mut self, ui: &mut egui::Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ///////////////////// Map/Elevation button /////////////////////
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new(if self.show_map { "Elevation" } else { "Map" })
+                            .size(BUTTON_TEXT_SIZE)
+                            .color(Color32::from_rgb(255, 255, 255)),
+                    )
+                    .min_size(egui::Vec2::new(150.0, 50.0))
+                    .fill(Color32::from_rgb(76, 175, 80)) // Green
+                    .stroke(egui::Stroke::new(1.5, Color32::from_rgb(56, 142, 60))),
+                )
+                .clicked()
+            {
+                self.show_map = !self.show_map;
+            }
+            ///////////////////// Reset button /////////////////////
             if ui
                 .add(
                     egui::Button::new(
                         egui::RichText::new("Reset")
-                            .size(14.0)
+                            .size(BUTTON_TEXT_SIZE)
                             .color(Color32::WHITE),
                     )
-                    .min_size(egui::Vec2::new(100.0, 40.0))
-                    .fill(Color32::from_rgb(100, 100, 120)),
+                    .min_size(egui::Vec2::new(80.0, 50.0))
+                    .fill(Color32::from_rgb(100, 100, 120))
+                    .stroke(egui::Stroke::new(1.5, Color32::BLACK)),
                 )
                 .clicked()
             {
@@ -452,9 +495,8 @@ impl App {
                 self.max_elevation = m_to_ft(max_elevation(&self.gpx));
                 self.diff_elevation = self.max_elevation - self.min_elevation;
                 self.name = journey::name_from_gpx(&self.gpx);
+                self.reset_ui();
                 self.status_text = format!("Loaded {}", file_path);
-                self.mode = Mode::NORMAL;
-                self.show_map = true;
             }
             Err(e) => {
                 self.status_text = format!("Failed to load GPX file: {}", e);
@@ -471,6 +513,7 @@ impl App {
                 self.min_elevation = m_to_ft(min_elevation(&self.gpx));
                 self.max_elevation = m_to_ft(max_elevation(&self.gpx));
                 self.diff_elevation = self.max_elevation - self.min_elevation;
+                self.reset_ui();
                 self.status_text = format!("Loaded {}", name);
             }
             Err(_) => {
@@ -642,4 +685,49 @@ fn set_clipboard(text: String) -> bool {
     {
         return false;
     }
+}
+
+fn qr_to_texture(ctx: &egui::Context, data: &str) -> TextureHandle {
+    //println!("length = {}", data.len());
+    //println!("{}", &data);
+
+    let code = QrCode::new(data).unwrap();
+    //let code = QrCode::with_error_correction_level(data,qrcode::EcLevel::L).unwrap();
+
+    // Get the raw bool matrix
+    let bits: Vec<Vec<bool>> = code
+        .to_colors()
+        .chunks(code.width())
+        .map(|row| row.iter().map(|c| *c == qrcode::Color::Dark).collect())
+        .collect();
+
+    let scale = 8usize; // pixels per module
+    let size = bits.len() * scale;
+
+    let mut pixels = vec![egui::Color32::WHITE; size * size];
+
+    for (y, row) in bits.iter().enumerate() {
+        for (x, &dark) in row.iter().enumerate() {
+            let color = if dark {
+                egui::Color32::BLACK
+            } else {
+                egui::Color32::WHITE
+            };
+            for dy in 0..scale {
+                for dx in 0..scale {
+                    pixels[(y * scale + dy) * size + (x * scale + dx)] = color;
+                }
+            }
+        }
+    }
+
+    let image = ColorImage::from_rgba_unmultiplied(
+        [size, size],
+        &pixels
+            .iter()
+            .flat_map(|c| c.to_array())
+            .collect::<Vec<u8>>(),
+    );
+
+    ctx.load_texture("qrcode", image, TextureOptions::NEAREST)
 }

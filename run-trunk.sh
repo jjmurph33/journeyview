@@ -24,12 +24,9 @@ if lsof -Pi :$PORT -sTCP:LISTEN -t &>/dev/null; then
     fi
 fi
 
-echo "Starting trunk on port $PORT in background..."
+echo "Starting trunk on port $PORT"
 trunk serve \
   --port $PORT \
   --address 0.0.0.0 \
-  --release &
+  --release
 
-TRUNK_PID=$!
-echo "Trunk started with PID: $TRUNK_PID"
-echo "To stop: kill $TRUNK_PID"

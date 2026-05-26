@@ -20,13 +20,14 @@ fn main() -> eframe::Result {
     };
 
     let (name, gpx) = journey::import_sample().unwrap();
+    let url = String::from("http://localhost:8001");
 
     eframe::run_native(
         "Journey View",
         options,
         Box::new(|cc| {
             setup_dark_theme(&cc.egui_ctx);
-            Ok(Box::new(app::App::new(gpx, name)))
+            Ok(Box::new(app::App::new(gpx, name, Some(url))))
         }),
     )
 }
@@ -60,6 +61,11 @@ fn main() {
 
         let (mut name, mut gpx) = journey::import_sample().unwrap();
 
+        let mut url = String::from("http://localhost:8001");
+        if let Ok(origin) = window.location().origin() {
+            url = origin;
+        }
+
         if let Ok(search) = window.location().search() {
             if let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search) {
                 if let Some(journey_string) = params.get("j") {
@@ -83,7 +89,7 @@ fn main() {
                 web_options,
                 Box::new(|cc| {
                     setup_dark_theme(&cc.egui_ctx);
-                    Ok(Box::new(app::App::new(gpx, name)))
+                    Ok(Box::new(app::App::new(gpx, name, Some(url))))
                 }),
             )
             .await

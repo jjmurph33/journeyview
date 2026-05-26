@@ -5,6 +5,7 @@ use gpx::{Gpx, GpxVersion, Metadata, Track, TrackSegment, Waypoint};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::BufReader;
+use zstd;
 
 #[derive(Serialize, Deserialize)]
 pub struct Journey {
@@ -81,30 +82,49 @@ fn from_polyline(polyline: &str) -> Gpx {
 }
 
 fn encode(name: &str, polyline: &str) -> String {
-    let journey = Journey::new(name, polyline);
-    if let Ok(bytes) = postcard::to_allocvec(&journey) {
-        return URL_SAFE.encode(&bytes);
-    } else {
-        return String::new();
+    // name and polyline are joined with a "|" character and then compressed and base64 encoded
+    //TODO: check for "|" character in the name when importing or renaming
+    let data = format!("{}|{}", name, polyline);
+    let bytes = data.as_bytes();
+    // 22 = maximum compression
+    match zstd::encode_all(bytes, 22) {
+        Ok(compressed) => return URL_SAFE.encode(&compressed),
+        Err(e) => eprint!("Error compressing data: {}", e),
     }
+    return String::new();
 }
 
 pub fn decode(encoded: &str) -> Option<Journey> {
-    if let Ok(bytes) = URL_SAFE.decode(encoded) {
-        if let Ok(journey) = postcard::from_bytes(&bytes) {
-            return Some(journey);
-        } else {
-            return None;
-        };
-    } else {
-        return None;
-    };
+    match URL_SAFE.decode(encoded) {
+        Ok(bytes) => match zstd::decode_all(bytes.as_slice()) {
+            Ok(decompressed) => match String::from_utf8(decompressed) {
+                Ok(decoded) => {
+                    //println!("decoded:\n{}\n", decoded);
+                    if let Some((name, polyline)) = decoded.split_once("|") {
+                        //println!("name = {}", name);
+                        //println!("polyline = {}", polyline);
+                        let journey = Journey::new(name, polyline);
+                        return Some(journey);
+                    }
+                }
+                Err(e) => eprintln!("Error decoding imported data: {}", e),
+            },
+            Err(e) => eprintln!("Error decompressing imported data: {}", e),
+        },
+        Err(e) => eprintln!("Error reading imported data: {}", e),
+    }
+    return None;
 }
 
 pub fn export(name: &str, gpx: &Gpx) -> String {
     let polyline = to_polyline(&gpx);
     let journey_string = encode(&name, &polyline);
-    journey_string
+    if journey_string.len() > 2000 {
+        //TODO: try to reduce the polyline
+        String::new()
+    } else {
+        journey_string
+    }
 }
 
 pub fn import(journey_string: &str) -> Result<(String, Gpx), String> {
@@ -133,4 +153,4 @@ pub fn import_sample() -> Result<(String, Gpx), String> {
     import(SAMPLE_JOURNEY)
 }
 
-const SAMPLE_JOURNEY: &str = r#"B010IEJsdWWiD0IyQnMxMXAxQ3IweG1tRWlicUdMRGxDa0xBa0Q2SEFrQnFJQm9Ec0tLZ0RnSUltRG1IQUxnTEM0RHVIRWlHMkNFbUV3R0NrQ3VIRTZDNkhJOEN5SUdtR29HRC1COElFMEM4SEdzRWdJS3VEcUxLLUNzSUJzRWtIS2dGLUdJbUctR0FzSHVJYWdFNEdEb0d3RE0tRmlHQm9HMkNDeUZ1R0NpRmlGTTJHaUlLZ0ZtRUFxRDJHTzBINENEb0NpSU8wRmlGRXFGNEdNZ0dzSEV5RThGRUR1S1EzQjRKQWVtSU1Mb01DYWtJRTNCeUpTRXVLQWpFOEpJdkNrSENnQ21JSVFzSkVxRGtKS3NCc0pFNEV3SUltRThGRXVGd0VCMkQwSkc4RWdJSXVHeURFd0ZtQ0NtSDZGQjBEeUpBa0ZvRUlrRG9IQ29Fd0dFb0YtREdsQmtJQk55TFNFbUpFZm9KSWxCLUhFbUMwSktlc0lDNEMwSUU4Q2tISzBEMklFWThKR3FDZ0pLMkhJR0c4TUM2RWtIRTJFcUZCZ0ZzR0k2RG1JRThEc0dJcUdnR0VtS21IUTBFeUVFbUZ5REEtRG9IS29EbUhJaUY0R0UtSGdHTTRIcUNHaUcyQ0M0Ry1MU29GNkZFd0Z6QkMyRW9GS2dId0JBNERpSUlpR29DRWtHNkNJbUdrREN5RndCT2tIVEUwR3ZDRWlGNURDcUZxRUk2RjhDR2dIMkJFaUdGQ3lHY0lpSEJHbUkwRUtvRm1HQzRGLUVJc0Y4RkkwQm1KRTBDNkpJUThIQS1ELUpFaUR1Skl3QjRIQTJEdUxHa0UtSVE2RGdPS2lGNklPc0ZzRUd3RWlNT3FCd0lFaUlrS0dJMktNc0J5SUNyQi1JRTVDdU5LdEN1SUdIc0lDbERrSkc1Qm9KQzFCMkhDd0NnS0tLc0pJU3NLSV9GSkV2RnlEQjFGNkVLakItSUFkOEpJdEJrT0dfRjRGRTVEeUpLYTRLR2dEZ01FcUJxS0EwRGtKQTVCOElHekQ4R0VoRXdKRXZKd0VPdER1R0N4RjBETXRGNkhHbkdRSTdGN0JHM0Z6REtySlNRbkloQkluSDBET3RFbUZJN0Y4Q0k3QzZORTdFeUZNekhNS25JZkd6RlRLM0YtRkVfRWdHRTFGbUhHdEdRSWpGaUZDN0UtRUVsR3NFRWxGMEVDakJnSkRoQmlKRUUwSUNFdUpBekUyRkFyRm9GSTRFNUZBMEI5SUEyQjBKRThGM0JGekRsR0RLMUpCTnZJQWlEbkhCN0M5TUI3QzlIQi1EcUlBa0l4Q0NzRnRFRDRFNUVGOEY3Q0IyRm5DRi1JektINk9yRVRzR0lEMkYxQkotRTNFRnFCeElIcUVfRkIyRWhGSG9IMUVSeUZiSjBGZ0JIcUdZRjZGSUgwRndDRi1Gb0RINEZkSm9DbE1Ga0ZfRERnSVJKOEV6RkYtRmhPSDBEbEdCbUM3SUJ4RTdHQjFDeEhCUjVKQnJCNUhGQTFJSDRCOUhCa0g5SEhzQ2pLSGtEMUdGakIzTEZpRm5GRHNGcEVCNEZyQ0F1Q25IRFAxSUZsRHZHRlkzSUZjM0lCa0QzS0ZzQmpJRnFCdElEMkN2SEJtQ2xRSk54SkF0QjFMSjlEM0ZEMUN2TUZoRHJJRHZFeEZMMUY3Q0hmcklEdkR6S05fRnZJTlg3SERqRDlISHJEektBRHZJQnBEMUhGdEJ6SEI3QnpMSHpDdElBN0d2SEZqRnBFRjNEcEdCN0ZsRVA1Rk5DcEdTRF9GRUIxRjNDTnZHMUJMMUZ6Qk45RnhDQ3JHY0E3RWtGRGxHNkNBbkd0Qk5oRmxFSHJGbkNGekZwQ0huRjdFQl9FN0VKX0dqQ0Z6RjdFRnBIakZMaEZqRUI1RGxHRjdGOURGakZ2REpqR2hDQTVFNUZGOUZyRExoQmpJQnBGeEZEakcxREQ1RGhISDNJaERBM0VoSExuRXJHSDFDN0hINUVsRkJfRXhIRnhGeEVGdEN2SEZ1Q2hMQXdGM0hGekRnSEk1RGtIQ25GN0REekJfS0pqQmpJSnJDN0hCekNqSUZyRTNLRGxCcklKVHJJRk54SkJhdklEbUJ6SUZ4QjlMSmV0SUpwR2xFQXRFX0ZCbkUzR0R4RG5ISHZFOUVBN0V2RUIzRjFDRmxHOURBdkVfR0YxQjFISjVFckZBcEc5RkI1QjlISjlEN0hCekM5SEZuQm5JRHZCN0hESzVJSDZCaElGbUV6T0hHeklEZTNJSFR6SU5FX0hEZnRKRGdDN0hKdUJ2SUY3RDNGQWpHOUZOdkVsRkV2RjVGRnRFM0dIMUdsSEZuR25HSHJGbEVGdEYzSUoxRTlGRnBGakRGbEV4Rkp4RmpERDFFakZCNUV0RUZyRWpISHpIekVEMUUzS0p2R2pGRG5FbkdCbkN2S0hoQzFISG5GbkVEUHJLRm5FakdBekUxRkQzQ3BIQmxCOUlIakQzR0RsQzlIQW5GeEZIakhoQkNuRDNIQnFCX0hBaEJfSEQzRHhHQjdDbEhCUnRJRDZCcElBa0J1SUc5RThEQ3RCM0hGaEJ2SUY1Q2hJQXhCcElEaEMxSkE="#;
+const SAMPLE_JOURNEY: &str = r#"KLUv_QCIVSoAqnUgFCUAScwcULHvkvC37OEHp0Cb4NwIOWhTUlKCi0r5LuL_nf7__y8hPAE5ATYBB9YGKJguZGfEC4uenNkuMPWOqSa5pkykF8Z2L9scOCZh21NHFLGP6eF74wk5soR1aw-5QHS_E6Q3ZaQfwsA-QRvJrUTsN1nI3xZIr0lsncHrn8ZgH7YDFBcGvoVXK8PadmW1dE2tX42t6F20QT44lolxZfXSlP9pEf0aJeBWmIL9V7aAm_QsjezbDv6xnNKt5P4htookyg54F3z2rQO50BSLxxZEr4DPgUTRZcRe1reeFl3gyDLFTeOp1DQL3jSaoJFoMZ6kp5qwYIqpbApfMgmtYVPMLLTSmnZhpwNP8S1qprFvhifJrd3wt2QkRUQp0k-7tSOy2Ucgo6011n9JxPshD2llVxbbJDS1TtFCKiZF5Jhi_5NOkrSphh9BK_KDWpHCyksVHUFALYZZGkk6EMfZkIANFlAuBDBZBAx8jqR9acf4MGJfg4ToE9hEbNjCs8aSiAnbRY-y-c3uo_Chb8Iqt-Gtr11moWSKq0k7xs72tI5lhh-JAHfN4DNp4d2CLwst45DQJ4KhZ2wnDW08e3x8djDgSSTt-GmEGPqDztoPPFlow5Zsik4aW3ncvso-thHa9SPQED1Lm0iKYGQXk04tFQ5I76KG5QI7umHh5B9CQfQMVtIe2EG9MLePHS9tA_5tkiRNWUknoJNPQ0M_S6_8zfspOZEYlDTsMyjJv-C2kAjfkvXUfgUjjQW1ld6Nt8YfmJIakx4OnlmrFRQlRF7Ayj-KUvsYZSJHHPw7ZLMPw-YZwdsvw4VsjDVpm8canfoEfUluapHgUyeCD78RjqQamNrkulkCbjWwwpdUq7HPQ1ubWlP_lBYirPgksbaExI4rywEJZsMaonx09ZTjijXBEBtwK34ouHIIL1S14y20DlyIM08Id5wZS3wvfjBw0lmUh76UrYWiBC3JtHCCgR06zTHyYQeXHTqgIclgQ4C9GMKG6MML4Yqdayj6SXau6BBC73DC7igEn9NI4p7QSh0qwHiOHQypUwaeEDsKtiynL9EHL7h0lB9NPIWDk-hZGO_gSgydS4L-BCP8FW4sPWrhPwn4HwPcnF78TgD1LClRSriAC-FNOWOKFQ9W3I5aLlW5uSfcQk9gwd-J2A0owWcQgG5JBxtaCz6UGPaljTcezDB3i3gCflJ1sMWLK7WngAuuGjOcFW78-cAGOuI4cfMQ8EXAOq45P5aA7NiIvwUjvM8yDx0m6PdGYCWNg0vdM5wZEzAhRvDqTnjLtLwVfUQZ9EUiIfRMqei50XPyoZboH2l4sD84SUVsop-CVvQQPOhPBKBfCWFb9NFH5A6MoD-aJT68crZwFnkiL-1HK_8EXuiQfJSd7aKuJEkA3YwzdycfLnGZYWebKVfNPenZzjv3aiW8kzUgV-uo5bFFK4YwJ9Z5__CE92KJd9YZ-9WO97MTZgNzy9dyDE50FfGjED-HlOdQTvomDNQdy_iOgP-zQL9rb3SL8T_w4G-Q1CHk9DPM2BOaeJ5AA3KiIRFL1vDcQYfbsVykib44HX5wuYWiTSznnqlF-9kM2bGTaK-GvJ8seIoEWvg7xPS5A8gvIfBegpdKz0r4q-zQoZS8r7B6kgM7VYizdEsN75N27A9XIsUjKexcTngtbGG38LUGdygdb8lmCn_sE-njH_eHGlSdrpQtDMGv8KFQCQcYCIB9QSnEmhco4SrOzayF3hpmLBkDEaPHOHHEVepugGDi0ya2QoxZwK0CTJSv0glnNVdhOBCCw18LguTOKA=="#;
