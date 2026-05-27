@@ -38,14 +38,14 @@ jobs:
       - name: Install trunk
         run: cargo install trunk
       - name: Build with trunk
-        run: trunk build --release
+        run: trunk build --release --public-url /journeyview/
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           # Upload only the dist folder
-          path: 'dist'
+          path: "dist"
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
