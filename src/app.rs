@@ -259,7 +259,7 @@ impl App {
             let include_url = true; //TODO: make this a radio button
             if include_url && !self.export_string.is_empty() {
                 if self.url.is_some() {
-                    let export_url = format!("{}/?j=", self.url.as_ref().unwrap());
+                    let export_url = format!("{}/journeyview/?j=", self.url.as_ref().unwrap());
                     self.export_string.insert_str(0, &export_url);
                 }
             }
