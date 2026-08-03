@@ -4,9 +4,6 @@
 mod app;
 mod journey;
 
-use eframe;
-use eframe::egui;
-
 #[cfg(not(target_arch = "wasm32"))]
 // native entry point
 fn main() -> eframe::Result {

@@ -1,11 +1,10 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE};
 use flexpolyline::Polyline;
 use geo_types::Point;
-use gpx::{Gpx, GpxVersion, Metadata, Track, TrackSegment, Waypoint};
+use gpx::{Gpx, GpxVersion, Track, TrackSegment, Waypoint};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::BufReader;
-use zstd;
 
 #[derive(Serialize, Deserialize)]
 pub struct Journey {
@@ -23,22 +22,18 @@ impl Journey {
 }
 
 pub fn load_gpx_file(file_path: &str) -> Result<Gpx, String> {
-    match fs::File::open(&file_path) {
+    match fs::File::open(file_path) {
         Ok(file) => {
             let reader = BufReader::new(file);
             match gpx::read(reader) {
                 Ok(gpx) => {
                     //println!("{:?}", gpx);
-                    return Ok(gpx);
+                    Ok(gpx)
                 }
-                Err(e) => {
-                    return Err(format!("Failed to parse GPX file: {}", e));
-                }
+                Err(e) => Err(format!("Failed to parse GPX file: {}", e)),
             }
         }
-        Err(e) => {
-            return Err(format!("Failed to open file: {}", e));
-        }
+        Err(e) => Err(format!("Failed to open file: {}", e)),
     }
 }
 
@@ -57,12 +52,14 @@ fn to_polyline(gpx: &Gpx) -> String {
         precision3d: flexpolyline::Precision::Digits0,
         type3d: flexpolyline::Type3d::Elevation,
     };
-    polyline.encode().unwrap_or(String::new())
+    polyline.encode().unwrap_or_default()
 }
 
 fn from_polyline(polyline: &str) -> Gpx {
-    let mut gpx: Gpx = Default::default();
-    gpx.version = GpxVersion::Gpx11;
+    let mut gpx = Gpx {
+        version: GpxVersion::Gpx11,
+        ..Default::default()
+    };
     let decoded = Polyline::decode(polyline).unwrap();
     if let Polyline::Data3d { coordinates, .. } = decoded {
         let mut segment = TrackSegment::new();
@@ -91,7 +88,7 @@ fn encode(name: &str, polyline: &str) -> String {
         Ok(compressed) => return URL_SAFE.encode(&compressed),
         Err(e) => eprint!("Error compressing data: {}", e),
     }
-    return String::new();
+    String::new()
 }
 
 pub fn decode(encoded: &str) -> Option<Journey> {
@@ -113,12 +110,12 @@ pub fn decode(encoded: &str) -> Option<Journey> {
         },
         Err(e) => eprintln!("Error reading imported data: {}", e),
     }
-    return None;
+    None
 }
 
 pub fn export(name: &str, gpx: &Gpx) -> String {
-    let polyline = to_polyline(&gpx);
-    let journey_string = encode(&name, &polyline);
+    let polyline = to_polyline(gpx);
+    let journey_string = encode(name, &polyline);
     if journey_string.len() > 2000 {
         //TODO: try to reduce the polyline
         String::new()
@@ -130,8 +127,10 @@ pub fn export(name: &str, gpx: &Gpx) -> String {
 pub fn import(journey_string: &str) -> Result<(String, Gpx), String> {
     if let Some(journey) = decode(journey_string) {
         let name = journey.name.clone();
-        let mut metadata = Metadata::default();
-        metadata.name = Some(name.clone());
+        let metadata = gpx::Metadata {
+            name: Some(name.clone()),
+            ..Default::default()
+        };
         let mut gpx = from_polyline(&journey.polyline);
         gpx.metadata = Some(metadata);
         Ok((name, gpx))
@@ -141,12 +140,12 @@ pub fn import(journey_string: &str) -> Result<(String, Gpx), String> {
 }
 
 pub fn name_from_gpx(gpx: &Gpx) -> String {
-    if let Some(metadata) = &gpx.metadata {
-        if let Some(name) = &metadata.name {
-            return name.clone();
-        }
+    if let Some(metadata) = &gpx.metadata
+        && let Some(name) = &metadata.name
+    {
+        return name.clone();
     }
-    return String::new();
+    String::new()
 }
 
 pub fn import_sample() -> Result<(String, Gpx), String> {

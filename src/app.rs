@@ -11,10 +11,9 @@ use crate::journey;
 static BUTTON_TEXT_SIZE: f32 = 22.0;
 
 enum Mode {
-    NORMAL,
-    LOAD,
-    IMPORT,
-    EXPORT,
+    Normal,
+    Import,
+    Export,
 }
 
 pub struct App {
@@ -26,7 +25,6 @@ pub struct App {
     name: String,
     name_editing: bool,
     name_buffer: String,
-    load_buffer: String,
     import_buffer: String,
     status_text: String,
     show_map: bool,   // toggle between map and elevation plot
@@ -52,12 +50,11 @@ impl App {
             diff_elevation,
             name_editing: false,
             name_buffer: String::new(),
-            load_buffer: String::new(),
             import_buffer: String::new(),
             status_text: String::new(),
             show_map: true,
             reset_plot: false,
-            mode: Mode::NORMAL,
+            mode: Mode::Normal,
             export_string: String::new(),
             qrcode: None,
             url,
@@ -65,11 +62,10 @@ impl App {
     }
 
     fn reset_ui(&mut self) {
-        self.mode = Mode::NORMAL;
+        self.mode = Mode::Normal;
         self.show_map = true;
         self.name_editing = false;
         self.name_buffer.clear();
-        self.load_buffer.clear();
         self.import_buffer.clear();
         self.status_text.clear();
         self.reset_plot = false;
@@ -137,7 +133,7 @@ impl App {
                     )
                     .clicked()
                 {
-                    self.mode = Mode::EXPORT;
+                    self.mode = Mode::Export;
                 }
                 ///////////////////// Import button ////////////////////////
                 if ui
@@ -153,7 +149,7 @@ impl App {
                     )
                     .clicked()
                 {
-                    self.mode = Mode::IMPORT;
+                    self.mode = Mode::Import;
                     if let Some(clipboard_text) = read_clipboard() {
                         self.import_buffer = clipboard_text;
                     } else {
@@ -161,21 +157,23 @@ impl App {
                     }
                 }
                 ///////////////////// Load button ////////////////////////
-                if ui
-                    .add(
-                        egui::Button::new(
-                            egui::RichText::new("Load File")
-                                .size(BUTTON_TEXT_SIZE)
-                                .color(Color32::from_rgb(255, 255, 255)),
-                        )
-                        .min_size(egui::Vec2::new(150.0, 50.0))
-                        .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                        .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
-                    )
-                    .clicked()
+                #[cfg(not(target_arch = "wasm32"))]
                 {
-                    self.mode = Mode::LOAD;
-                    self.load_buffer.clear();
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("Load File")
+                                    .size(BUTTON_TEXT_SIZE)
+                                    .color(Color32::from_rgb(255, 255, 255)),
+                            )
+                            .min_size(egui::Vec2::new(150.0, 50.0))
+                            .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                            .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                        )
+                        .clicked()
+                    {
+                        self.open_gpx_picker();
+                    }
                 }
             });
         });
@@ -184,23 +182,6 @@ impl App {
     fn bottom_panel(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label(&self.status_text);
-        });
-    }
-
-    fn load_panel(&mut self, ui: &mut egui::Ui) {
-        ui.label("Enter file path:");
-        ui.text_edit_singleline(&mut self.load_buffer);
-        ui.horizontal(|ui| {
-            if ui.button("Load").clicked() {
-                if !self.load_buffer.is_empty() {
-                    self.load_file(self.load_buffer.clone());
-                    self.load_buffer.clear();
-                }
-            }
-            if ui.button("Cancel").clicked() {
-                self.mode = Mode::NORMAL;
-                self.load_buffer.clear();
-            }
         });
     }
 
@@ -227,12 +208,11 @@ impl App {
                     .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
                 )
                 .clicked()
+                && !self.import_buffer.trim().is_empty()
             {
-                if !self.import_buffer.trim().is_empty() {
-                    self.load_journey_string(self.import_buffer.clone());
-                    self.import_buffer.clear();
-                    self.mode = Mode::NORMAL;
-                }
+                self.load_journey_string(self.import_buffer.clone());
+                self.import_buffer.clear();
+                self.mode = Mode::Normal;
             }
             if ui
                 .add(
@@ -247,7 +227,7 @@ impl App {
                 )
                 .clicked()
             {
-                self.mode = Mode::NORMAL;
+                self.mode = Mode::Normal;
                 self.import_buffer.clear();
             }
         });
@@ -257,25 +237,24 @@ impl App {
         if self.export_string.is_empty() {
             self.export_string = journey::export(&self.name, &self.gpx);
             let include_url = true; //TODO: make this a radio button
-            if include_url && !self.export_string.is_empty() {
-                if self.url.is_some() {
-                    let export_url = format!("{}/?j=", self.url.as_ref().unwrap());
-                    self.export_string.insert_str(0, &export_url);
-                }
+            if include_url
+                && !self.export_string.is_empty()
+                && let Some(url) = self.url.as_ref()
+            {
+                let export_url = format!("{}/?j=", url);
+                self.export_string.insert_str(0, &export_url);
             }
         }
 
-        if self.qrcode.is_none() {
-            if !self.export_string.is_empty() {
-                self.qrcode = Some(qr_to_texture(ui.ctx(), &self.export_string));
-            }
+        if self.qrcode.is_none() && !self.export_string.is_empty() {
+            self.qrcode = Some(qr_to_texture(ui.ctx(), &self.export_string));
         }
 
         let id = egui::Id::new("export_text");
         let initialized = ui.memory(|m| m.data.get_temp::<bool>(id)).unwrap_or(false);
 
         let mut size = ui.available_size();
-        size.x = size.x / 2.0;
+        size.x /= 2.0;
         //size.y = size.y * 0.75;
         size.y -= 80.0;
 
@@ -326,7 +305,7 @@ impl App {
                 )
                 .clicked()
             {
-                self.mode = Mode::NORMAL;
+                self.mode = Mode::Normal;
             }
             if ui
                 .add(
@@ -340,14 +319,13 @@ impl App {
                     .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
                 )
                 .clicked()
+                && !self.export_string.trim().is_empty()
             {
-                if !self.export_string.trim().is_empty() {
-                    println!("{}\n", self.export_string.clone());
-                    if set_clipboard(self.export_string.clone()) {
-                        self.status_text = String::from("Copied to clipboard");
-                    }
-                    self.mode = Mode::NORMAL;
+                println!("{}\n", self.export_string.clone());
+                if set_clipboard(self.export_string.clone()) {
+                    self.status_text = String::from("Copied to clipboard");
                 }
+                self.mode = Mode::Normal;
             }
         });
     }
@@ -486,6 +464,19 @@ impl App {
         });
     }
 
+    fn open_gpx_picker(&mut self) {
+        let path = rfd::FileDialog::new()
+            .add_filter("GPX Files", &["gpx"])
+            .set_title("Open GPX File")
+            .pick_file();
+
+        if let Some(path) = path {
+            self.load_file(path.display().to_string());
+        } else {
+            self.status_text = String::from("No file selected");
+        }
+    }
+
     fn load_file(&mut self, file_path: String) {
         match journey::load_gpx_file(&file_path) {
             Ok(gpx) => {
@@ -564,7 +555,7 @@ impl eframe::App for App {
             });
 
         CentralPanel::default().show_inside(ui, |ui| match self.mode {
-            Mode::NORMAL => {
+            Mode::Normal => {
                 if self.show_map {
                     self.map_panel(ui);
                 } else {
@@ -573,9 +564,8 @@ impl eframe::App for App {
                 let ctx = ui.ctx().clone();
                 self.handle_dropped_files(&ctx);
             }
-            Mode::LOAD => self.load_panel(ui),
-            Mode::IMPORT => self.import_panel(ui),
-            Mode::EXPORT => self.export_panel(ui),
+            Mode::Import => self.import_panel(ui),
+            Mode::Export => self.export_panel(ui),
         });
     }
 }
@@ -585,10 +575,10 @@ fn min_elevation(gpx: &Gpx) -> f64 {
     for track in &gpx.tracks {
         for segment in &track.segments {
             for waypoint in &segment.points {
-                if let Some(elevation) = waypoint.elevation {
-                    if elevation < min {
-                        min = elevation;
-                    }
+                if let Some(elevation) = waypoint.elevation
+                    && elevation < min
+                {
+                    min = elevation;
                 }
             }
         }
@@ -601,10 +591,10 @@ fn max_elevation(gpx: &Gpx) -> f64 {
     for track in &gpx.tracks {
         for segment in &track.segments {
             for waypoint in &segment.points {
-                if let Some(elevation) = waypoint.elevation {
-                    if elevation > max {
-                        max = elevation;
-                    }
+                if let Some(elevation) = waypoint.elevation
+                    && elevation > max
+                {
+                    max = elevation;
                 }
             }
         }
@@ -655,11 +645,8 @@ fn read_clipboard() -> Option<String> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         match arboard::Clipboard::new() {
-            Ok(mut clipboard) => match clipboard.get_text() {
-                Ok(text) => return Some(text),
-                Err(_) => return None,
-            },
-            Err(_) => return None,
+            Ok(mut clipboard) => clipboard.get_text().ok(),
+            Err(_) => None,
         }
     }
     #[cfg(target_arch = "wasm32")]
@@ -673,12 +660,9 @@ fn set_clipboard(text: String) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
         if let Ok(mut clipboard) = arboard::Clipboard::new() {
-            match clipboard.set_text(text) {
-                Ok(_) => return true,
-                Err(_) => return false,
-            }
+            clipboard.set_text(text).is_ok()
         } else {
-            return false;
+            false
         }
     }
     #[cfg(target_arch = "wasm32")]
