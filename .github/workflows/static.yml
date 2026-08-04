@@ -36,7 +36,7 @@ jobs:
       - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - name: Install trunk
-        run: cargo install trunk
+        run: cargo install trunk --locked # locked because of build error with lightningcss
       - name: Build with trunk
         run: trunk build --release --public-url /journeyview/
       - name: Setup Pages
