@@ -18,6 +18,7 @@ zstd = "0.13.3"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 eframe = "0.34.1"
 arboard = "3.6.1"
+rfd = "0.15"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 eframe = { version = "0.34.1", default-features = false, features = [
