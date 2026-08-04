@@ -464,6 +464,7 @@ impl App {
         });
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn open_gpx_picker(&mut self) {
         let path = rfd::FileDialog::new()
             .add_filter("GPX Files", &["gpx"])
