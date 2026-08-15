@@ -65,6 +65,20 @@ impl App {
         }
     }
 
+    fn load(&mut self, gpx: Gpx, name: Option<String>) {
+        self.gpx = gpx;
+        self.distance = km_to_mi(distance(&self.gpx));
+        self.min_elevation = m_to_ft(min_elevation(&self.gpx));
+        self.max_elevation = m_to_ft(max_elevation(&self.gpx));
+        self.diff_elevation = self.max_elevation - self.min_elevation;
+        self.name = if let Some(name) = name {
+            name
+        } else {
+            journey::name_from_gpx(&self.gpx)
+        };
+        self.reset_ui();
+    }
+
     fn reset_ui(&mut self) {
         self.mode = Mode::Normal;
         self.show_map = true;
@@ -370,7 +384,7 @@ impl App {
     }
 
     fn info_panel(&mut self, ui: &mut Ui) {
-        ui.label("GPX Info:");
+        ui.label("GPX Info");
         ScrollArea::vertical().show(ui, |ui| {
             ui.label(journey::info(&self.gpx));
         });
@@ -405,7 +419,10 @@ impl App {
             .x_axis_label("Longitude")
             .y_axis_label("Latitude")
             .show_axes(true)
-            .show_grid(true);
+            .show_grid(true)
+            .allow_zoom(false)
+            .allow_scroll(false)
+            .allow_boxed_zoom(false);
 
         if self.reset_plot {
             plot = plot.reset();
@@ -432,6 +449,12 @@ impl App {
                     );
                 }
             }
+
+            let scroll_delta = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
+            if scroll_delta != 0.0 {
+                let zoom_factor = if scroll_delta > 0.0 { 1.0 / 1.1 } else { 1.1 };
+                plot_ui.zoom_bounds_around_hovered(Vec2::splat(zoom_factor));
+            }
         });
 
         self.map_buttons(ui);
@@ -447,7 +470,10 @@ impl App {
             .x_axis_label("Distance (mi)")
             .y_axis_label("Feet")
             .show_axes(true)
-            .show_grid(true);
+            .show_grid(true)
+            .allow_zoom(false)
+            .allow_scroll(false)
+            .allow_boxed_zoom(false);
 
         if self.reset_plot {
             plot = plot.reset();
@@ -485,6 +511,12 @@ impl App {
                             .width(2.5),
                     );
                 }
+            }
+
+            let scroll_delta = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
+            if scroll_delta != 0.0 {
+                let zoom_factor = if scroll_delta > 0.0 { 1.0 / 1.1 } else { 1.1 };
+                plot_ui.zoom_bounds_around_hovered(Vec2::splat(zoom_factor));
             }
         });
 
@@ -544,13 +576,7 @@ impl App {
     fn load_file(&mut self, file_path: String) {
         match journey::load_gpx_file(&file_path) {
             Ok(gpx) => {
-                self.gpx = gpx;
-                self.distance = km_to_mi(distance(&self.gpx));
-                self.min_elevation = m_to_ft(min_elevation(&self.gpx));
-                self.max_elevation = m_to_ft(max_elevation(&self.gpx));
-                self.diff_elevation = self.max_elevation - self.min_elevation;
-                self.name = journey::name_from_gpx(&self.gpx);
-                self.reset_ui();
+                self.load(gpx, None);
                 self.status_text = format!("Loaded {}", file_path);
             }
             Err(e) => {
@@ -562,13 +588,7 @@ impl App {
     fn load_journey_string(&mut self, journey_string: String) {
         match journey::import(&journey_string) {
             Ok((name, gpx)) => {
-                self.gpx = gpx;
-                self.name = name.clone();
-                self.distance = km_to_mi(distance(&self.gpx));
-                self.min_elevation = m_to_ft(min_elevation(&self.gpx));
-                self.max_elevation = m_to_ft(max_elevation(&self.gpx));
-                self.diff_elevation = self.max_elevation - self.min_elevation;
-                self.reset_ui();
+                self.load(gpx, Some(name.clone()));
                 self.status_text = format!("Loaded {}", name);
             }
             Err(_) => {
