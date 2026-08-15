@@ -9,7 +9,7 @@ mod journey;
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([1800.0, 800.0])
+            .with_inner_size([1600.0, 800.0])
             .with_min_inner_size([1200.0, 600.0])
             .with_maximized(true)
             .with_drag_and_drop(true),
@@ -30,7 +30,7 @@ fn main() -> eframe::Result {
 }
 
 #[cfg(target_arch = "wasm32")]
-// like println! but for the browser console
+// console! - like println! but for the browser console
 macro_rules! console {
     ($($t:tt)*) => {
         web_sys::console::log_1(&format!($($t)*).into())

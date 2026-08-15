@@ -1,7 +1,7 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE};
 use flexpolyline::Polyline;
 use geo_types::Point;
-use gpx::{Gpx, GpxVersion, Track, TrackSegment, Waypoint};
+use gpx::{Gpx, GpxVersion, Link, Track, TrackSegment, Waypoint};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::BufReader;
@@ -10,15 +10,6 @@ use std::io::BufReader;
 pub struct Journey {
     name: String,
     polyline: String,
-}
-
-impl Journey {
-    fn new(name: &str, polyline: &str) -> Journey {
-        Journey {
-            name: name.to_string(),
-            polyline: polyline.to_string(),
-        }
-    }
 }
 
 pub fn load_gpx_file(file_path: &str) -> Result<Gpx, String> {
@@ -100,7 +91,10 @@ pub fn decode(encoded: &str) -> Option<Journey> {
                     if let Some((name, polyline)) = decoded.split_once("|") {
                         //println!("name = {}", name);
                         //println!("polyline = {}", polyline);
-                        let journey = Journey::new(name, polyline);
+                        let journey = Journey {
+                            name: name.to_string(),
+                            polyline: polyline.to_string(),
+                        };
                         return Some(journey);
                     }
                 }
@@ -146,6 +140,201 @@ pub fn name_from_gpx(gpx: &Gpx) -> String {
         return name.clone();
     }
     String::new()
+}
+
+pub fn info(gpx: &Gpx) -> String {
+    let mut info = String::new();
+
+    info.push_str(&format!("Version: {:?}\n", gpx.version));
+
+    if let Some(creator) = &gpx.creator {
+        info.push_str(&format!("Creator: {}\n", creator));
+    }
+
+    if let Some(metadata) = &gpx.metadata {
+        if let Some(name) = &metadata.name {
+            info.push_str(&format!("Name: {}\n", name));
+        }
+        if let Some(description) = &metadata.description {
+            info.push_str(&format!("Description: {}\n", description));
+        }
+        if let Some(author) = &metadata.author {
+            if let Some(name) = &author.name {
+                info.push_str(&format!("Author: {}\n", name));
+            }
+            if let Some(email) = &author.email {
+                info.push_str(&format!("Email: {}\n", email));
+            }
+        }
+        for link in &metadata.links {
+            info.push_str(&link_info(link));
+        }
+        if let Some(time) = &metadata.time {
+            info.push_str(&format!("Time: {}\n", time.format().unwrap_or_default()));
+        }
+        if let Some(keywords) = &metadata.keywords {
+            info.push_str(&format!("Keywords: {}\n", keywords));
+        }
+        if let Some(copyright) = &metadata.copyright {
+            info.push_str(&format!(
+                "Copyright: {}\n",
+                copyright.author.as_ref().unwrap_or(&String::new())
+            ));
+            if let Some(year) = &copyright.year {
+                info.push_str(&format!("Copyright Year: {}\n", year));
+            }
+            if let Some(license) = &copyright.license {
+                info.push_str(&format!("Copyright License: {}\n", license));
+            }
+        }
+        if let Some(bounds) = &metadata.bounds {
+            info.push_str(&format!(
+                "Bounds: minlat={}, minlon={}, maxlat={}, maxlon={}\n",
+                bounds.min().y,
+                bounds.min().x,
+                bounds.max().y,
+                bounds.max().x
+            ));
+        }
+    }
+
+    info.push_str(&format!("Waypoints: {}\n", gpx.waypoints.len()));
+
+    for track in &gpx.tracks {
+        if let Some(name) = &track.name {
+            info.push_str(&format!("Track Name: {}\n", name));
+        }
+        if let Some(comment) = &track.comment {
+            info.push_str(&format!("Track Comment: {}\n", comment));
+        }
+        if let Some(description) = &track.description {
+            info.push_str(&format!("Track Description: {}\n", description));
+        }
+        if let Some(source) = &track.source {
+            info.push_str(&format!("Track Source: {}\n", source));
+        }
+        for link in &track.links {
+            info.push_str(&link_info(link));
+        }
+        if let Some(type_) = &track.type_ {
+            info.push_str(&format!("Track Type: {}\n", type_));
+        }
+        if let Some(number) = &track.number {
+            info.push_str(&format!("Track Number: {}\n", number));
+        }
+        info.push_str(&format!("Track Segments: {}\n", track.segments.len()));
+        for (i, segment) in track.segments.iter().enumerate() {
+            info.push_str(&format!(
+                "\tSegment {}: {} waypoints\n",
+                i + 1,
+                segment.points.len()
+            ));
+        }
+    }
+
+    for route in &gpx.routes {
+        if let Some(name) = &route.name {
+            info.push_str(&format!("Route Name: {}\n", name));
+        }
+        if let Some(comment) = &route.comment {
+            info.push_str(&format!("Route Comment: {}\n", comment));
+        }
+        if let Some(description) = &route.description {
+            info.push_str(&format!("Route Description: {}\n", description));
+        }
+        if let Some(source) = &route.source {
+            info.push_str(&format!("Route Source: {}\n", source));
+        }
+        for link in &route.links {
+            info.push_str(&link_info(link));
+        }
+        if let Some(number) = &route.number {
+            info.push_str(&format!("Route Number: {}\n", number));
+        }
+        if let Some(type_) = &route.type_ {
+            info.push_str(&format!("Route Type: {}\n", type_));
+        }
+        for waypoint in &route.points {
+            info.push_str(&waypoint_info(waypoint));
+        }
+    }
+    info
+}
+
+fn waypoint_info(waypoint: &Waypoint) -> String {
+    let mut info = String::new();
+    info.push_str(&format!(
+        "({}),({})\n",
+        waypoint.point().y(),
+        waypoint.point().x()
+    ));
+    if let Some(elevation) = &waypoint.elevation {
+        info.push_str(&format!("Elevation (m): {}\n", elevation));
+    }
+    if let Some(speed) = &waypoint.speed {
+        info.push_str(&format!("Speed (m/s): {}\n", speed));
+    }
+    if let Some(time) = &waypoint.time {
+        info.push_str(&format!("Time: {}\n", time.format().unwrap_or_default()));
+    }
+    if let Some(name) = &waypoint.name {
+        info.push_str(&format!("Name: {}\n", name));
+    }
+    if let Some(comment) = &waypoint.comment {
+        info.push_str(&format!("Comment: {}\n", comment));
+    }
+    if let Some(description) = &waypoint.description {
+        info.push_str(&format!("Description: {}\n", description));
+    }
+    if let Some(source) = &waypoint.source {
+        info.push_str(&format!("Source: {}\n", source));
+    }
+    for link in &waypoint.links {
+        info.push_str(&link_info(link));
+    }
+    if let Some(symbol) = &waypoint.symbol {
+        info.push_str(&format!("Symbol: {}\n", symbol));
+    }
+    if let Some(type_) = &waypoint.type_ {
+        info.push_str(&format!("Type: {}\n", type_));
+    }
+    if let Some(geoidheight) = &waypoint.geoidheight {
+        info.push_str(&format!("Geoid Height: {}\n", geoidheight));
+    }
+    if let Some(fix) = &waypoint.fix {
+        info.push_str(&format!("Fix: {:?}\n", fix));
+    }
+    if let Some(sat) = &waypoint.sat {
+        info.push_str(&format!("Sat: {}\n", sat));
+    }
+    if let Some(hdop) = &waypoint.hdop {
+        info.push_str(&format!("HDOP: {}\n", hdop));
+    }
+    if let Some(vdop) = &waypoint.vdop {
+        info.push_str(&format!("VDOP: {}\n", vdop));
+    }
+    if let Some(pdop) = &waypoint.pdop {
+        info.push_str(&format!("PDOP: {}\n", pdop));
+    }
+    if let Some(dgps_age) = &waypoint.dgps_age {
+        info.push_str(&format!("DGPS Age: {}\n", dgps_age));
+    }
+    if let Some(dgpsid) = &waypoint.dgpsid {
+        info.push_str(&format!("DGPS ID: {}\n", dgpsid));
+    }
+    info
+}
+
+fn link_info(link: &Link) -> String {
+    let mut info = String::new();
+    info.push_str(&format!("Link: {}\n", link.href));
+    if let Some(text) = &link.text {
+        info.push_str(&format!("Link Text: {}\n", text));
+    }
+    if let Some(type_) = &link.type_ {
+        info.push_str(&format!("Link Type: {}\n", type_));
+    }
+    info
 }
 
 pub fn import_sample() -> Result<(String, Gpx), String> {

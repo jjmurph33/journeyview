@@ -1,6 +1,8 @@
 use eframe::egui;
 use egui::{
-    CentralPanel, Color32, ColorImage, FontFamily, FontId, Panel, TextureHandle, TextureOptions, Ui,
+    Align, Button, CentralPanel, Color32, ColorImage, FontFamily, FontId, Frame, Image, Key, Label,
+    Layout, Margin, Panel, RichText, ScrollArea, Sense, Stroke, TextEdit, TextStyle, TextureHandle,
+    TextureOptions, Ui, Vec2,
 };
 use egui_plot::{Line, Plot, PlotPoints};
 use gpx::Gpx;
@@ -10,10 +12,12 @@ use crate::journey;
 
 static BUTTON_TEXT_SIZE: f32 = 22.0;
 
+#[derive(PartialEq)]
 enum Mode {
     Normal,
     Import,
     Export,
+    Info,
 }
 
 pub struct App {
@@ -73,63 +77,98 @@ impl App {
         self.qrcode = None;
     }
 
-    fn top_panel(&mut self, ui: &mut egui::Ui) {
+    fn top_panel(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 //////////// Name label ////////////////////////
-                if self.name_editing {
-                    if self.name_buffer.is_empty() {
-                        self.name_buffer = self.name.clone();
+                ui.horizontal(|ui| {
+                    if self.name_editing {
+                        if self.name_buffer.is_empty() {
+                            self.name_buffer = self.name.clone();
+                        }
+                        let name_edit_id = egui::Id::new("name_edit"); // need id to manage focus
+                        ui.add(
+                            TextEdit::singleline(&mut self.name_buffer)
+                                .id(name_edit_id)
+                                .font(TextStyle::Heading),
+                        );
+                        if !ui.memory(|m| m.has_focus(name_edit_id)) {
+                            ui.memory_mut(|m| m.request_focus(name_edit_id));
+                        }
+
+                        if ui.small_button("Rename").clicked()
+                            || ui.ctx().input(|i| i.key_pressed(Key::Enter))
+                        {
+                            self.name = self.name_buffer.clone();
+                            self.name_editing = false;
+                        }
+                        if ui.small_button("Cancel").clicked()
+                            || ui.ctx().input(|i| i.key_pressed(Key::Escape))
+                        {
+                            self.name_buffer.clear();
+                            self.name_editing = false;
+                        }
+                    } else {
+                        let label_button = ui.add(
+                            Label::new(
+                                RichText::new(self.name.clone())
+                                    .size(28.0)
+                                    .color(Color32::from_rgb(200, 220, 255))
+                                    .strong(),
+                            )
+                            .sense(Sense::click()),
+                        );
+                        if label_button.clicked() {
+                            self.name_editing = true;
+                            self.name_buffer = self.name.clone();
+                        }
                     }
-                    let resp = ui.text_edit_singleline(&mut self.name_buffer);
-                    let commit =
-                        ui.ctx().input(|i| i.key_pressed(egui::Key::Enter)) || resp.lost_focus();
-                    if commit {
-                        self.name = self.name_buffer.clone();
-                        self.name_editing = false;
-                    }
-                } else {
-                    let lbl = ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(self.name.clone())
-                                .size(28.0)
-                                .color(Color32::from_rgb(200, 220, 255))
-                                .strong(),
-                        )
-                        .sense(egui::Sense::click()),
-                    );
-                    if lbl.clicked() {
-                        self.name_editing = true;
-                        self.name_buffer = self.name.clone();
-                    }
-                }
+                });
                 ///////////////////// Info labels /////////////////////
                 ui.label(
-                    egui::RichText::new(format!("Distance: {:.1}mi", self.distance))
+                    RichText::new(format!("Distance: {:.1}mi", self.distance))
                         .size(18.0)
                         .color(Color32::from_rgb(210, 210, 220)),
                 );
-                ui.label(
-                    egui::RichText::new(format!(
-                        "Elevation: {:.0}ft -> {:.0}ft ({:.0}ft change)",
-                        self.min_elevation, self.max_elevation, self.diff_elevation
-                    ))
-                    .size(18.0)
-                    .color(Color32::from_rgb(210, 210, 220)),
-                );
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!(
+                            "Elevation: {:.0}ft -> {:.0}ft ({:.0}ft change)",
+                            self.min_elevation, self.max_elevation, self.diff_elevation
+                        ))
+                        .size(18.0)
+                        .color(Color32::from_rgb(210, 210, 220)),
+                    );
+                    let button = ui.add(
+                        Button::new(
+                            RichText::new("i")
+                                .size(10.0)
+                                .color(Color32::from_rgb(255, 255, 255)),
+                        )
+                        .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                        .corner_radius(5.0),
+                    );
+                    if button.clicked() {
+                        if self.mode == Mode::Info {
+                            self.mode = Mode::Normal;
+                        } else {
+                            self.mode = Mode::Info;
+                        }
+                    }
+                });
             });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ///////////////////// Export button ////////////////////////
                 if ui
                     .add(
-                        egui::Button::new(
-                            egui::RichText::new("Export")
+                        Button::new(
+                            RichText::new("Export")
                                 .size(BUTTON_TEXT_SIZE)
                                 .color(Color32::from_rgb(255, 255, 255)),
                         )
-                        .min_size(egui::Vec2::new(150.0, 50.0))
+                        .min_size(Vec2::new(150.0, 50.0))
                         .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                        .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                        .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
                     )
                     .clicked()
                 {
@@ -138,14 +177,14 @@ impl App {
                 ///////////////////// Import button ////////////////////////
                 if ui
                     .add(
-                        egui::Button::new(
-                            egui::RichText::new("Import")
+                        Button::new(
+                            RichText::new("Import")
                                 .size(BUTTON_TEXT_SIZE)
                                 .color(Color32::from_rgb(255, 255, 255)),
                         )
-                        .min_size(egui::Vec2::new(150.0, 50.0))
+                        .min_size(Vec2::new(150.0, 50.0))
                         .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                        .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                        .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
                     )
                     .clicked()
                 {
@@ -161,14 +200,14 @@ impl App {
                 {
                     if ui
                         .add(
-                            egui::Button::new(
-                                egui::RichText::new("Load File")
+                            Button::new(
+                                RichText::new("Load File")
                                     .size(BUTTON_TEXT_SIZE)
                                     .color(Color32::from_rgb(255, 255, 255)),
                             )
-                            .min_size(egui::Vec2::new(150.0, 50.0))
+                            .min_size(Vec2::new(150.0, 50.0))
                             .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                            .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                            .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
                         )
                         .clicked()
                     {
@@ -179,17 +218,17 @@ impl App {
         });
     }
 
-    fn bottom_panel(&mut self, ui: &mut egui::Ui) {
+    fn bottom_panel(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.label(&self.status_text);
         });
     }
 
-    fn import_panel(&mut self, ui: &mut egui::Ui) {
+    fn import_panel(&mut self, ui: &mut Ui) {
         ui.label("Journey Code:");
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        ScrollArea::vertical().show(ui, |ui| {
             ui.add(
-                egui::TextEdit::multiline(&mut self.import_buffer)
+                TextEdit::multiline(&mut self.import_buffer)
                     .desired_width(f32::INFINITY)
                     .desired_rows(30)
                     .hint_text(String::from("paste here")),
@@ -198,14 +237,14 @@ impl App {
         ui.horizontal(|ui| {
             if ui
                 .add(
-                    egui::Button::new(
-                        egui::RichText::new("Import")
+                    Button::new(
+                        RichText::new("Import")
                             .size(16.0)
                             .color(Color32::from_rgb(255, 255, 255)),
                     )
-                    .min_size(egui::Vec2::new(150.0, 50.0))
+                    .min_size(Vec2::new(150.0, 50.0))
                     .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                    .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                    .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
                 )
                 .clicked()
                 && !self.import_buffer.trim().is_empty()
@@ -216,14 +255,14 @@ impl App {
             }
             if ui
                 .add(
-                    egui::Button::new(
-                        egui::RichText::new("Cancel")
+                    Button::new(
+                        RichText::new("Cancel")
                             .size(16.0)
                             .color(Color32::from_rgb(255, 255, 255)),
                     )
-                    .min_size(egui::Vec2::new(150.0, 50.0))
+                    .min_size(Vec2::new(150.0, 50.0))
                     .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                    .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                    .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
                 )
                 .clicked()
             {
@@ -233,7 +272,7 @@ impl App {
         });
     }
 
-    fn export_panel(&mut self, ui: &mut egui::Ui) {
+    fn export_panel(&mut self, ui: &mut Ui) {
         if self.export_string.is_empty() {
             self.export_string = journey::export(&self.name, &self.gpx);
             let include_url = true; //TODO: make this a radio button
@@ -258,10 +297,10 @@ impl App {
         //size.y = size.y * 0.75;
         size.y -= 80.0;
 
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+        ui.with_layout(Layout::right_to_left(Align::TOP), |ui| {
             ui.add_sized(
                 size,
-                egui::TextEdit::multiline(&mut self.export_string.as_str())
+                TextEdit::multiline(&mut self.export_string.as_str())
                     .font(FontId::new(18.0, FontFamily::Proportional))
                     .desired_width(f32::INFINITY)
                     .desired_rows(20)
@@ -269,7 +308,7 @@ impl App {
             );
             // select all of the text
             if !initialized {
-                let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+                let mut state = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
                 state
                     .cursor
                     .set_char_range(Some(egui::text::CCursorRange::two(
@@ -285,23 +324,23 @@ impl App {
             }
 
             if let Some(texture) = &self.qrcode {
-                ui.add_sized(size, egui::Image::new(texture).shrink_to_fit());
+                ui.add_sized(size, Image::new(texture).shrink_to_fit());
             } else {
-                ui.add_sized(size, egui::Label::new("Error Generating QRCode"));
+                ui.add_sized(size, Label::new("Error Generating QRCode"));
             }
         });
 
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if ui
                 .add(
-                    egui::Button::new(
-                        egui::RichText::new("Cancel")
+                    Button::new(
+                        RichText::new("Cancel")
                             .size(16.0)
                             .color(Color32::from_rgb(255, 255, 255)),
                     )
-                    .min_size(egui::Vec2::new(150.0, 50.0))
+                    .min_size(Vec2::new(150.0, 50.0))
                     .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                    .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                    .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
                 )
                 .clicked()
             {
@@ -309,14 +348,14 @@ impl App {
             }
             if ui
                 .add(
-                    egui::Button::new(
-                        egui::RichText::new("Copy to clipboard")
+                    Button::new(
+                        RichText::new("Copy to clipboard")
                             .size(16.0)
                             .color(Color32::from_rgb(255, 255, 255)),
                     )
-                    .min_size(egui::Vec2::new(150.0, 50.0))
+                    .min_size(Vec2::new(150.0, 50.0))
                     .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                    .stroke(egui::Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                    .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
                 )
                 .clicked()
                 && !self.export_string.trim().is_empty()
@@ -330,7 +369,32 @@ impl App {
         });
     }
 
-    fn map_panel(&mut self, ui: &mut egui::Ui) {
+    fn info_panel(&mut self, ui: &mut Ui) {
+        ui.label("GPX Info:");
+        ScrollArea::vertical().show(ui, |ui| {
+            ui.label(journey::info(&self.gpx));
+        });
+
+        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            if ui
+                .add(
+                    Button::new(
+                        RichText::new("Ok")
+                            .size(16.0)
+                            .color(Color32::from_rgb(255, 255, 255)),
+                    )
+                    .min_size(Vec2::new(150.0, 50.0))
+                    .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                    .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                )
+                .clicked()
+            {
+                self.mode = Mode::Normal;
+            }
+        });
+    }
+
+    fn map_panel(&mut self, ui: &mut Ui) {
         let track_color = Color32::from_rgb(66, 133, 244); // blue
         let available_height = ui.available_size().y;
         let map_height = (available_height - 60.0).max(200.0);
@@ -373,7 +437,7 @@ impl App {
         self.map_buttons(ui);
     }
 
-    fn elevation_panel(&mut self, ui: &mut egui::Ui) {
+    fn elevation_panel(&mut self, ui: &mut Ui) {
         let track_color = Color32::from_rgb(66, 244, 133); // green
         let available_height = ui.available_size().y;
         let plot_height = (available_height - 60.0).max(200.0);
@@ -427,19 +491,19 @@ impl App {
         self.map_buttons(ui);
     }
 
-    fn map_buttons(&mut self, ui: &mut egui::Ui) {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+    fn map_buttons(&mut self, ui: &mut Ui) {
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ///////////////////// Map/Elevation button /////////////////////
             if ui
                 .add(
-                    egui::Button::new(
-                        egui::RichText::new(if self.show_map { "Elevation" } else { "Map" })
+                    Button::new(
+                        RichText::new(if self.show_map { "Elevation" } else { "Map" })
                             .size(BUTTON_TEXT_SIZE)
                             .color(Color32::from_rgb(255, 255, 255)),
                     )
-                    .min_size(egui::Vec2::new(150.0, 50.0))
+                    .min_size(Vec2::new(150.0, 50.0))
                     .fill(Color32::from_rgb(76, 175, 80)) // Green
-                    .stroke(egui::Stroke::new(1.5, Color32::from_rgb(56, 142, 60))),
+                    .stroke(Stroke::new(1.5, Color32::from_rgb(56, 142, 60))),
                 )
                 .clicked()
             {
@@ -448,14 +512,14 @@ impl App {
             ///////////////////// Reset button /////////////////////
             if ui
                 .add(
-                    egui::Button::new(
-                        egui::RichText::new("Reset")
+                    Button::new(
+                        RichText::new("Reset")
                             .size(BUTTON_TEXT_SIZE)
                             .color(Color32::WHITE),
                     )
-                    .min_size(egui::Vec2::new(80.0, 50.0))
+                    .min_size(Vec2::new(80.0, 50.0))
                     .fill(Color32::from_rgb(100, 100, 120))
-                    .stroke(egui::Stroke::new(1.5, Color32::BLACK)),
+                    .stroke(Stroke::new(1.5, Color32::BLACK)),
                 )
                 .clicked()
             {
@@ -539,10 +603,10 @@ impl App {
 impl eframe::App for App {
     // called automatically every frame
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        let frame = egui::Frame::default()
+        let frame = Frame::default()
             .fill(Color32::from_rgb(35, 35, 45))
-            .stroke(egui::Stroke::new(1.5, Color32::from_rgb(80, 80, 100)))
-            .inner_margin(egui::Margin::symmetric(10, 8));
+            .stroke(Stroke::new(1.5, Color32::from_rgb(80, 80, 100)))
+            .inner_margin(Margin::symmetric(10, 8));
 
         Panel::top("top_panel").frame(frame).show_inside(ui, |ui| {
             self.top_panel(ui);
@@ -566,6 +630,7 @@ impl eframe::App for App {
             }
             Mode::Import => self.import_panel(ui),
             Mode::Export => self.export_panel(ui),
+            Mode::Info => self.info_panel(ui),
         });
     }
 }
