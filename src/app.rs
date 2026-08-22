@@ -552,17 +552,16 @@ impl App {
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
         for file in dropped_files {
-            if let Some(path) = file.path {
-                // Only process .gpx files
-                if let Some(ext) = path.extension() {
-                    if ext.to_string_lossy().to_lowercase() == "gpx" {
-                        self.load_file(path.to_string_lossy().to_string());
-                    } else {
-                        // TODO: show a status message that the file type is not supported
-                    }
+            let path = file.path();
+            // Only process .gpx files
+            if let Some(ext) = path.extension() {
+                if ext.to_string_lossy().to_lowercase() == "gpx" {
+                    self.load_file(path.to_string_lossy().to_string());
                 } else {
-                    // TODO: show a status message that the file has no extension
+                    // TODO: show a status message that the file type is not supported
                 }
+            } else {
+                // TODO: show a status message that the file has no extension
             }
         }
     }
@@ -576,11 +575,11 @@ impl eframe::App for App {
             .stroke(Stroke::new(1.5, Color32::from_rgb(80, 80, 100)))
             .inner_margin(Margin::symmetric(10, 8));
 
-        Panel::top("top_panel").frame(frame).show_inside(ui, |ui| {
+        Panel::top("top_panel").frame(frame).show(ui, |ui| {
             self.top_panel(ui);
         });
 
-        CentralPanel::default().show_inside(ui, |ui| match self.mode {
+        CentralPanel::default().show(ui, |ui| match self.mode {
             Mode::Normal => {
                 if self.show_elevation {
                     self.map_panel(ui, true);
