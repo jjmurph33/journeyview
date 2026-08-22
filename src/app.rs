@@ -30,7 +30,6 @@ pub struct App {
     name_editing: bool,
     name_buffer: String,
     import_buffer: String,
-    status_text: String,
     show_map: bool,   // toggle between map and elevation plot
     reset_plot: bool, // reset plot zoom/pan
     mode: Mode,
@@ -55,7 +54,6 @@ impl App {
             name_editing: false,
             name_buffer: String::new(),
             import_buffer: String::new(),
-            status_text: String::new(),
             show_map: true,
             reset_plot: false,
             mode: Mode::Normal,
@@ -85,7 +83,6 @@ impl App {
         self.name_editing = false;
         self.name_buffer.clear();
         self.import_buffer.clear();
-        self.status_text.clear();
         self.reset_plot = false;
         self.export_string.clear();
         self.qrcode = None;
@@ -212,6 +209,7 @@ impl App {
                 ///////////////////// Load button ////////////////////////
                 #[cfg(not(target_arch = "wasm32"))]
                 {
+                    ui.add_space(12.0);
                     if ui
                         .add(
                             Button::new(
@@ -228,13 +226,24 @@ impl App {
                         self.open_gpx_picker();
                     }
                 }
+                ///////////////////// Elevation/Map button //////////////////
+                ui.add_space(28.0);
+                if ui
+                    .add(
+                        Button::new(
+                            RichText::new(if self.show_map { "Elevation" } else { "Map" })
+                                .size(BUTTON_TEXT_SIZE)
+                                .color(Color32::from_rgb(255, 255, 255)),
+                        )
+                        .min_size(Vec2::new(150.0, 50.0))
+                        .fill(Color32::from_rgb(76, 175, 80)) // Green
+                        .stroke(Stroke::new(1.5, Color32::from_rgb(56, 142, 60))),
+                    )
+                    .clicked()
+                {
+                    self.show_map = !self.show_map;
+                }
             });
-        });
-    }
-
-    fn bottom_panel(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
-            ui.label(&self.status_text);
         });
     }
 
@@ -308,7 +317,6 @@ impl App {
 
         let mut size = ui.available_size();
         size.x /= 2.0;
-        //size.y = size.y * 0.75;
         size.y -= 80.0;
 
         ui.with_layout(Layout::right_to_left(Align::TOP), |ui| {
@@ -376,7 +384,7 @@ impl App {
             {
                 println!("{}\n", self.export_string.clone());
                 if set_clipboard(self.export_string.clone()) {
-                    self.status_text = String::from("Copied to clipboard");
+                    // TODO: show a status message that the text was copied to the clipboard
                 }
                 self.mode = Mode::Normal;
             }
@@ -411,7 +419,7 @@ impl App {
     fn map_panel(&mut self, ui: &mut Ui) {
         let track_color = Color32::from_rgb(66, 133, 244); // blue
         let available_height = ui.available_size().y;
-        let map_height = (available_height - 60.0).max(200.0);
+        let map_height = available_height.max(200.0);
 
         let mut plot = Plot::new("track_map")
             .height(map_height)
@@ -429,7 +437,8 @@ impl App {
             self.reset_plot = false;
         }
 
-        plot.show(ui, |plot_ui| {
+        // Show the plot and capture its response so we can overlay the reset button
+        let plot_response = plot.show(ui, |plot_ui| {
             for (ti, trk) in self.gpx.tracks.iter().enumerate() {
                 for seg in &trk.segments {
                     let pts: PlotPoints = seg
@@ -457,13 +466,34 @@ impl App {
             }
         });
 
-        self.map_buttons(ui);
+        // Overlay the reset button at the bottom-right corner of the plot's rect
+        {
+            let plot_rect = plot_response.response.rect; // rect occupied by the plot
+            let btn_size = Vec2::new(56.0, 36.0);
+            let padding = Vec2::new(12.0, 12.0);
+            let btn_min = egui::pos2(
+                plot_rect.right() - padding.x - btn_size.x,
+                plot_rect.bottom() - padding.y - btn_size.y,
+            );
+            let btn_rect = egui::Rect::from_min_size(btn_min, btn_size);
+            let resp = ui
+                .put(
+                    btn_rect,
+                    Button::new(RichText::new("🔄").size(20.0))
+                        .fill(Color32::from_rgb(100, 100, 120))
+                        .stroke(Stroke::new(1.5, Color32::BLACK)),
+                )
+                .on_hover_text("Reset");
+            if resp.clicked() {
+                self.reset_plot = true;
+            }
+        }
     }
 
     fn elevation_panel(&mut self, ui: &mut Ui) {
         let track_color = Color32::from_rgb(66, 244, 133); // green
         let available_height = ui.available_size().y;
-        let plot_height = (available_height - 60.0).max(200.0);
+        let plot_height = available_height.max(200.0);
 
         let mut plot = Plot::new("elevation_map")
             .height(plot_height)
@@ -480,7 +510,8 @@ impl App {
             self.reset_plot = false;
         }
 
-        plot.show(ui, |plot_ui| {
+        // Show the elevation plot and capture its response so we can overlay the reset button
+        let plot_response = plot.show(ui, |plot_ui| {
             let mut distance = 0.0;
             let mut prev: Option<(f64, f64)> = None; // (lat, lon)
 
@@ -520,44 +551,28 @@ impl App {
             }
         });
 
-        self.map_buttons(ui);
-    }
-
-    fn map_buttons(&mut self, ui: &mut Ui) {
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ///////////////////// Map/Elevation button /////////////////////
-            if ui
-                .add(
-                    Button::new(
-                        RichText::new(if self.show_map { "Elevation" } else { "Map" })
-                            .size(BUTTON_TEXT_SIZE)
-                            .color(Color32::from_rgb(255, 255, 255)),
-                    )
-                    .min_size(Vec2::new(150.0, 50.0))
-                    .fill(Color32::from_rgb(76, 175, 80)) // Green
-                    .stroke(Stroke::new(1.5, Color32::from_rgb(56, 142, 60))),
+        // Overlay the reset button at the bottom-right corner of the elevation plot's rect
+        {
+            let plot_rect = plot_response.response.rect; // rect occupied by the plot
+            let btn_size = Vec2::new(56.0, 36.0);
+            let padding = Vec2::new(12.0, 12.0);
+            let btn_min = egui::pos2(
+                plot_rect.right() - padding.x - btn_size.x,
+                plot_rect.bottom() - padding.y - btn_size.y,
+            );
+            let btn_rect = egui::Rect::from_min_size(btn_min, btn_size);
+            let resp = ui
+                .put(
+                    btn_rect,
+                    Button::new(RichText::new("🔄").size(20.0))
+                        .fill(Color32::from_rgb(100, 100, 120))
+                        .stroke(Stroke::new(1.5, Color32::BLACK)),
                 )
-                .clicked()
-            {
-                self.show_map = !self.show_map;
-            }
-            ///////////////////// Reset button /////////////////////
-            if ui
-                .add(
-                    Button::new(
-                        RichText::new("Reset")
-                            .size(BUTTON_TEXT_SIZE)
-                            .color(Color32::WHITE),
-                    )
-                    .min_size(Vec2::new(80.0, 50.0))
-                    .fill(Color32::from_rgb(100, 100, 120))
-                    .stroke(Stroke::new(1.5, Color32::BLACK)),
-                )
-                .clicked()
-            {
+                .on_hover_text("Reset");
+            if resp.clicked() {
                 self.reset_plot = true;
             }
-        });
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -570,7 +585,7 @@ impl App {
         if let Some(path) = path {
             self.load_file(path.display().to_string());
         } else {
-            self.status_text = String::from("No file selected");
+            // TODO: show a status message that the user canceled the file picker
         }
     }
 
@@ -578,10 +593,9 @@ impl App {
         match journey::load_gpx_file(&file_path) {
             Ok(gpx) => {
                 self.load(gpx, None);
-                self.status_text = format!("Loaded {}", file_path);
             }
-            Err(e) => {
-                self.status_text = format!("Failed to load GPX file: {}", e);
+            Err(_e) => {
+                // TODO: show a status message that the file could not be loaded
             }
         }
     }
@@ -590,10 +604,9 @@ impl App {
         match journey::import(&journey_string) {
             Ok((name, gpx)) => {
                 self.load(gpx, Some(name.clone()));
-                self.status_text = format!("Loaded {}", name);
             }
             Err(_) => {
-                self.status_text = String::from("Failed to decode journey");
+                // TODO: show a status message that the string could not be imported
             }
         }
     }
@@ -607,14 +620,10 @@ impl App {
                     if ext.to_string_lossy().to_lowercase() == "gpx" {
                         self.load_file(path.to_string_lossy().to_string());
                     } else {
-                        self.status_text = format!(
-                            "Invalid file type: {}. Please drop a .gpx file.",
-                            ext.to_string_lossy()
-                        );
+                        // TODO: show a status message that the file type is not supported
                     }
                 } else {
-                    self.status_text =
-                        "File has no extension. Please drop a .gpx file.".to_string();
+                    // TODO: show a status message that the file has no extension
                 }
             }
         }
@@ -632,12 +641,6 @@ impl eframe::App for App {
         Panel::top("top_panel").frame(frame).show_inside(ui, |ui| {
             self.top_panel(ui);
         });
-
-        Panel::bottom("bottom_panel")
-            .frame(frame)
-            .show_inside(ui, |ui| {
-                self.bottom_panel(ui);
-            });
 
         CentralPanel::default().show_inside(ui, |ui| match self.mode {
             Mode::Normal => {
