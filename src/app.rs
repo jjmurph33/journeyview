@@ -1,14 +1,16 @@
+use crate::journey::{
+    self, JourneySegment, distance, elevation_segments, km_to_mi, m_to_ft, max_elevation,
+    min_elevation, plot_segments,
+};
 use eframe::egui;
 use egui::{
     Align, Button, CentralPanel, Color32, ColorImage, FontFamily, FontId, Frame, Image, Key, Label,
     Layout, Margin, Panel, RichText, ScrollArea, Sense, Stroke, TextEdit, TextStyle, TextureHandle,
     TextureOptions, Ui, Vec2,
 };
-use egui_plot::{Line, Plot, PlotPoints};
+use egui_plot::{Line, Plot};
 use gpx::Gpx;
 use qrcode::QrCode;
-
-use crate::journey;
 
 static BUTTON_TEXT_SIZE: f32 = 22.0;
 
@@ -30,12 +32,14 @@ pub struct App {
     name_editing: bool,
     name_buffer: String,
     import_buffer: String,
-    show_map: bool,   // toggle between map and elevation plot
-    reset_plot: bool, // reset plot zoom/pan
+    plot_segments: Vec<JourneySegment>,
+    elevation_segments: Vec<JourneySegment>,
     mode: Mode,
     export_string: String,
     qrcode: Option<TextureHandle>,
     url: Option<String>,
+    show_elevation: bool,
+    reset_plot: bool,
 }
 
 impl App {
@@ -44,6 +48,8 @@ impl App {
         let min_elevation = m_to_ft(min_elevation(&gpx));
         let max_elevation = m_to_ft(max_elevation(&gpx));
         let diff_elevation = max_elevation - min_elevation;
+        let plot_segments = plot_segments(&gpx);
+        let elevation_segments = elevation_segments(&gpx);
         Self {
             gpx,
             name,
@@ -54,12 +60,14 @@ impl App {
             name_editing: false,
             name_buffer: String::new(),
             import_buffer: String::new(),
-            show_map: true,
-            reset_plot: false,
+            plot_segments,
+            elevation_segments,
             mode: Mode::Normal,
             export_string: String::new(),
             qrcode: None,
             url,
+            show_elevation: false,
+            reset_plot: true,
         }
     }
 
@@ -69,6 +77,8 @@ impl App {
         self.min_elevation = m_to_ft(min_elevation(&self.gpx));
         self.max_elevation = m_to_ft(max_elevation(&self.gpx));
         self.diff_elevation = self.max_elevation - self.min_elevation;
+        self.plot_segments = plot_segments(&self.gpx);
+        self.elevation_segments = elevation_segments(&self.gpx);
         self.name = if let Some(name) = name {
             name
         } else {
@@ -79,11 +89,11 @@ impl App {
 
     fn reset_ui(&mut self) {
         self.mode = Mode::Normal;
-        self.show_map = true;
+        self.show_elevation = false;
         self.name_editing = false;
         self.name_buffer.clear();
         self.import_buffer.clear();
-        self.reset_plot = false;
+        self.reset_plot = true;
         self.export_string.clear();
         self.qrcode = None;
     }
@@ -152,7 +162,7 @@ impl App {
                     );
                     let button = ui.add(
                         Button::new(
-                            RichText::new("i")
+                            RichText::new("\u{2139}")
                                 .size(10.0)
                                 .color(Color32::from_rgb(255, 255, 255)),
                         )
@@ -231,9 +241,13 @@ impl App {
                 if ui
                     .add(
                         Button::new(
-                            RichText::new(if self.show_map { "Elevation" } else { "Map" })
-                                .size(BUTTON_TEXT_SIZE)
-                                .color(Color32::from_rgb(255, 255, 255)),
+                            RichText::new(if self.show_elevation {
+                                "Map"
+                            } else {
+                                "Elevation"
+                            })
+                            .size(BUTTON_TEXT_SIZE)
+                            .color(Color32::from_rgb(255, 255, 255)),
                         )
                         .min_size(Vec2::new(150.0, 50.0))
                         .fill(Color32::from_rgb(76, 175, 80)) // Green
@@ -241,7 +255,7 @@ impl App {
                     )
                     .clicked()
                 {
-                    self.show_map = !self.show_map;
+                    self.show_elevation = !self.show_elevation;
                 }
             });
         });
@@ -416,16 +430,21 @@ impl App {
         });
     }
 
-    fn map_panel(&mut self, ui: &mut Ui) {
-        let track_color = Color32::from_rgb(66, 133, 244); // blue
+    fn map_panel(&mut self, ui: &mut Ui, elevation: bool) {
         let available_height = ui.available_size().y;
-        let map_height = available_height.max(200.0);
 
-        let mut plot = Plot::new("track_map")
-            .height(map_height)
-            .data_aspect(1.0)
-            .x_axis_label("Longitude")
-            .y_axis_label("Latitude")
+        let mut plot = if elevation {
+            Plot::new("elevation_plot")
+                .x_axis_label("Distance (mi)")
+                .y_axis_label("Feet")
+        } else {
+            Plot::new("map_plot")
+                .x_axis_label("Longitude")
+                .y_axis_label("Latitude")
+        };
+
+        plot = plot
+            .height(available_height)
             .show_axes(true)
             .show_grid(true)
             .allow_zoom(false)
@@ -437,141 +456,60 @@ impl App {
             self.reset_plot = false;
         }
 
-        // Show the plot and capture its response so we can overlay the reset button
-        let plot_response = plot.show(ui, |plot_ui| {
-            for (ti, trk) in self.gpx.tracks.iter().enumerate() {
-                for seg in &trk.segments {
-                    let pts: PlotPoints = seg
-                        .points
-                        .iter()
-                        .map(|p| [p.point().x(), p.point().y()])
-                        .collect();
-                    let name = trk
-                        .name
-                        .clone()
-                        .unwrap_or_else(|| format!("Track {}", ti + 1));
+        // draw the plot and save the response
+        let response = if elevation {
+            plot.show(ui, |plot_ui| {
+                for segment in &self.elevation_segments {
                     plot_ui.line(
-                        Line::new("Track", pts)
-                            .name(&name)
-                            .color(track_color)
+                        Line::new("Track", segment.points.clone())
+                            .name(&segment.name)
+                            .color(segment.color)
                             .width(2.5),
                     );
                 }
-            }
-
-            let scroll_delta = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
-            if scroll_delta != 0.0 {
-                let zoom_factor = if scroll_delta > 0.0 { 1.0 / 1.1 } else { 1.1 };
-                plot_ui.zoom_bounds_around_hovered(Vec2::splat(zoom_factor));
-            }
-        });
-
-        // Overlay the reset button at the bottom-right corner of the plot's rect
-        {
-            let plot_rect = plot_response.response.rect; // rect occupied by the plot
-            let btn_size = Vec2::new(56.0, 36.0);
-            let padding = Vec2::new(12.0, 12.0);
-            let btn_min = egui::pos2(
-                plot_rect.right() - padding.x - btn_size.x,
-                plot_rect.bottom() - padding.y - btn_size.y,
-            );
-            let btn_rect = egui::Rect::from_min_size(btn_min, btn_size);
-            let resp = ui
-                .put(
-                    btn_rect,
-                    Button::new(RichText::new("🔄").size(20.0))
-                        .fill(Color32::from_rgb(100, 100, 120))
-                        .stroke(Stroke::new(1.5, Color32::BLACK)),
-                )
-                .on_hover_text("Reset");
-            if resp.clicked() {
-                self.reset_plot = true;
-            }
-        }
-    }
-
-    fn elevation_panel(&mut self, ui: &mut Ui) {
-        let track_color = Color32::from_rgb(66, 244, 133); // green
-        let available_height = ui.available_size().y;
-        let plot_height = available_height.max(200.0);
-
-        let mut plot = Plot::new("elevation_map")
-            .height(plot_height)
-            .x_axis_label("Distance (mi)")
-            .y_axis_label("Feet")
-            .show_axes(true)
-            .show_grid(true)
-            .allow_zoom(false)
-            .allow_scroll(false)
-            .allow_boxed_zoom(false);
-
-        if self.reset_plot {
-            plot = plot.reset();
-            self.reset_plot = false;
-        }
-
-        // Show the elevation plot and capture its response so we can overlay the reset button
-        let plot_response = plot.show(ui, |plot_ui| {
-            let mut distance = 0.0;
-            let mut prev: Option<(f64, f64)> = None; // (lat, lon)
-
-            for (ti, trk) in self.gpx.tracks.iter().enumerate() {
-                for seg in &trk.segments {
-                    let mut pts_vec: Vec<[f64; 2]> = Vec::new();
-                    for p in &seg.points {
-                        let lat = p.point().y();
-                        let lon = p.point().x();
-                        if let Some((prev_lat, prev_lon)) = prev {
-                            distance += haversine_distance(prev_lat, prev_lon, lat, lon);
-                        }
-                        prev = Some((lat, lon));
-                        let x = km_to_mi(distance);
-                        let y = m_to_ft(p.elevation.unwrap_or(0.0));
-                        pts_vec.push([x, y]);
-                    }
-
-                    let pts: PlotPoints = pts_vec.into_iter().collect();
-                    let name = trk
-                        .name
-                        .clone()
-                        .unwrap_or_else(|| format!("Track {}", ti + 1));
+                let scroll_delta = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
+                if scroll_delta != 0.0 {
+                    let zoom_factor = if scroll_delta > 0.0 { 1.0 / 1.1 } else { 1.1 };
+                    plot_ui.zoom_bounds_around_hovered(Vec2::splat(zoom_factor));
+                }
+            })
+        } else {
+            plot.show(ui, |plot_ui| {
+                for segment in &self.plot_segments {
                     plot_ui.line(
-                        Line::new("Track", pts)
-                            .name(&name)
-                            .color(track_color)
+                        Line::new("Track", segment.points.clone())
+                            .name(&segment.name)
+                            .color(segment.color)
                             .width(2.5),
                     );
                 }
-            }
+                let scroll_delta = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
+                if scroll_delta != 0.0 {
+                    let zoom_factor = if scroll_delta > 0.0 { 1.0 / 1.1 } else { 1.1 };
+                    plot_ui.zoom_bounds_around_hovered(Vec2::splat(zoom_factor));
+                }
+            })
+        };
 
-            let scroll_delta = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
-            if scroll_delta != 0.0 {
-                let zoom_factor = if scroll_delta > 0.0 { 1.0 / 1.1 } else { 1.1 };
-                plot_ui.zoom_bounds_around_hovered(Vec2::splat(zoom_factor));
-            }
-        });
-
-        // Overlay the reset button at the bottom-right corner of the elevation plot's rect
-        {
-            let plot_rect = plot_response.response.rect; // rect occupied by the plot
-            let btn_size = Vec2::new(56.0, 36.0);
-            let padding = Vec2::new(12.0, 12.0);
-            let btn_min = egui::pos2(
-                plot_rect.right() - padding.x - btn_size.x,
-                plot_rect.bottom() - padding.y - btn_size.y,
-            );
-            let btn_rect = egui::Rect::from_min_size(btn_min, btn_size);
-            let resp = ui
-                .put(
-                    btn_rect,
-                    Button::new(RichText::new("🔄").size(20.0))
-                        .fill(Color32::from_rgb(100, 100, 120))
-                        .stroke(Stroke::new(1.5, Color32::BLACK)),
-                )
-                .on_hover_text("Reset");
-            if resp.clicked() {
-                self.reset_plot = true;
-            }
+        // draw the reset button on top of the plot
+        let plot_rect = response.response.rect;
+        let btn_size = Vec2::new(56.0, 36.0);
+        let padding = Vec2::new(12.0, 12.0);
+        let btn_min = egui::pos2(
+            plot_rect.right() - padding.x - btn_size.x,
+            plot_rect.bottom() - padding.y - btn_size.y,
+        );
+        let btn_rect = egui::Rect::from_min_size(btn_min, btn_size);
+        let resp = ui
+            .put(
+                btn_rect,
+                Button::new(RichText::new("\u{1F504}").size(20.0))
+                    .fill(Color32::from_rgb(33, 150, 243))
+                    .stroke(Stroke::new(1.5, Color32::BLACK)),
+            )
+            .on_hover_text("Reset");
+        if resp.clicked() {
+            self.reset_plot = true;
         }
     }
 
@@ -644,11 +582,12 @@ impl eframe::App for App {
 
         CentralPanel::default().show_inside(ui, |ui| match self.mode {
             Mode::Normal => {
-                if self.show_map {
-                    self.map_panel(ui);
+                if self.show_elevation {
+                    self.map_panel(ui, true);
                 } else {
-                    self.elevation_panel(ui);
+                    self.map_panel(ui, false);
                 }
+                // TODO: why only in Normal mode?
                 let ctx = ui.ctx().clone();
                 self.handle_dropped_files(&ctx);
             }
@@ -657,77 +596,6 @@ impl eframe::App for App {
             Mode::Info => self.info_panel(ui),
         });
     }
-}
-
-fn min_elevation(gpx: &Gpx) -> f64 {
-    let mut min = f64::MAX;
-    for track in &gpx.tracks {
-        for segment in &track.segments {
-            for waypoint in &segment.points {
-                if let Some(elevation) = waypoint.elevation
-                    && elevation < min
-                {
-                    min = elevation;
-                }
-            }
-        }
-    }
-    min
-}
-
-fn max_elevation(gpx: &Gpx) -> f64 {
-    let mut max = f64::MIN;
-    for track in &gpx.tracks {
-        for segment in &track.segments {
-            for waypoint in &segment.points {
-                if let Some(elevation) = waypoint.elevation
-                    && elevation > max
-                {
-                    max = elevation;
-                }
-            }
-        }
-    }
-    max
-}
-
-fn distance(gpx: &Gpx) -> f64 {
-    let mut total = 0.0;
-    for track in &gpx.tracks {
-        for segment in &track.segments {
-            for i in 1..segment.points.len() {
-                let point = &segment.points[i];
-                let prev_point = &segment.points[i - 1];
-                let distance = haversine_distance(
-                    prev_point.point().y(),
-                    prev_point.point().x(),
-                    point.point().y(),
-                    point.point().x(),
-                );
-                total += distance;
-            }
-        }
-    }
-    total
-}
-
-fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-    let r = 6371.0; // Earth radius in km
-    let lat1 = lat1.to_radians();
-    let lat2 = lat2.to_radians();
-    let d_lat = lat2 - lat1;
-    let d_lon = (lon2 - lon1).to_radians();
-    let a = (d_lat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (d_lon / 2.0).sin().powi(2);
-    let c = 2.0 * a.sqrt().asin();
-    r * c
-}
-
-fn km_to_mi(value: f64) -> f64 {
-    value * 0.621371
-}
-
-fn m_to_ft(value: f64) -> f64 {
-    value * 3.28084
 }
 
 fn read_clipboard() -> Option<String> {
