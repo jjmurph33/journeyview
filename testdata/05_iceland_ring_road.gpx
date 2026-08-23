@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="test-generator"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>Iceland Ring Road Segment</name>
+    <desc>Reykjavik eastward</desc>
+    <time>2024-06-01T08:00:00Z</time>
+  </metadata>
+  <rte>
+    <name>Iceland Ring Road Segment</name>
+    <rtept lat="64.500000" lon="-18.000000">
+      <ele>100.0</ele>
+      <name>WP1</name>
+    </rtept>
+    <rtept lat="64.578504" lon="-18.004111">
+      <ele>120.9</ele>
+      <name>WP2</name>
+    </rtept>
+    <rtept lat="64.656793" lon="-18.016434">
+      <ele>141.6</ele>
+      <name>WP3</name>
+    </rtept>
+    <rtept lat="64.734652" lon="-18.036935">
+      <ele>161.8</ele>
+      <name>WP4</name>
+    </rtept>
+    <rtept lat="64.811868" lon="-18.065557">
+      <ele>181.3</ele>
+      <name>WP5</name>
+    </rtept>
+    <rtept lat="64.888229" lon="-18.102223">
+      <ele>200.0</ele>
+      <name>WP6</name>
+    </rtept>
+    <rtept lat="64.963525" lon="-18.146830">
+      <ele>217.6</ele>
+      <name>WP7</name>
+    </rtept>
+    <rtept lat="65.037552" lon="-18.199259">
+      <ele>233.8</ele>
+      <name>WP8</name>
+    </rtept>
+    <rtept lat="65.110105" lon="-18.259364">
+      <ele>248.6</ele>
+      <name>WP9</name>
+    </rtept>
+    <rtept lat="65.180986" lon="-18.326980">
+      <ele>261.8</ele>
+      <name>WP10</name>
+    </rtept>
+    <rtept lat="65.250000" lon="-18.401924">
+      <ele>273.2</ele>
+      <name>WP11</name>
+    </rtept>
+    <rtept lat="65.316959" lon="-18.483988">
+      <ele>282.7</ele>
+      <name>WP12</name>
+    </rtept>
+    <rtept lat="65.381678" lon="-18.572949">
+      <ele>290.2</ele>
+      <name>WP13</name>
+    </rtept>
+    <rtept lat="65.443981" lon="-18.668562">
+      <ele>295.6</ele>
+      <name>WP14</name>
+    </rtept>
+    <rtept lat="65.503696" lon="-18.770566">
+      <ele>298.9</ele>
+      <name>WP15</name>
+    </rtept>
+    <rtept lat="65.560660" lon="-18.878680">
+      <ele>300.0</ele>
+      <name>WP16</name>
+    </rtept>
+    <rtept lat="65.614717" lon="-18.992608">
+      <ele>298.9</ele>
+      <name>WP17</name>
+    </rtept>
+    <rtept lat="65.665719" lon="-19.112039">
+      <ele>295.6</ele>
+      <name>WP18</name>
+    </rtept>
+    <rtept lat="65.713525" lon="-19.236644">
+      <ele>290.2</ele>
+      <name>WP19</name>
+    </rtept>
+    <rtept lat="65.758006" lon="-19.366083">
+      <ele>282.7</ele>
+      <name>WP20</name>
+    </rtept>
+    <rtept lat="65.799038" lon="-19.500000">
+      <ele>273.2</ele>
+      <name>WP21</name>
+    </rtept>
+    <rtept lat="65.836510" lon="-19.638029">
+      <ele>261.8</ele>
+      <name>WP22</name>
+    </rtept>
+    <rtept lat="65.870318" lon="-19.779790">
+      <ele>248.6</ele>
+      <name>WP23</name>
+    </rtept>
+    <rtept lat="65.900371" lon="-19.924896">
+      <ele>233.8</ele>
+      <name>WP24</name>
+    </rtept>
+    <rtept lat="65.926585" lon="-20.072949">
+      <ele>217.6</ele>
+      <name>WP25</name>
+    </rtept>
+    <rtept lat="65.948889" lon="-20.223543">
+      <ele>200.0</ele>
+      <name>WP26</name>
+    </rtept>
+    <rtept lat="65.967221" lon="-20.376265">
+      <ele>181.3</ele>
+      <name>WP27</name>
+    </rtept>
+    <rtept lat="65.981533" lon="-20.530697">
+      <ele>161.8</ele>
+      <name>WP28</name>
+    </rtept>
+    <rtept lat="65.991783" lon="-20.686415">
+      <ele>141.6</ele>
+      <name>WP29</name>
+    </rtept>
+    <rtept lat="65.997944" lon="-20.842992">
+      <ele>120.9</ele>
+      <name>WP30</name>
+    </rtept>
+  </rte>
+</gpx>

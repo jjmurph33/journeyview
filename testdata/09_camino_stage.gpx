@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="test-generator"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>Camino de Santiago Stage</name>
+    <desc>Santiago to Sarria (reversed)</desc>
+    <time>2024-06-01T08:00:00Z</time>
+  </metadata>
+  <rte>
+    <name>Camino de Santiago Stage</name>
+    <rtept lat="42.879261" lon="-8.538705">
+      <ele>297.4</ele>
+      <name>WP1</name>
+    </rtept>
+    <rtept lat="42.875261" lon="-8.531421">
+      <ele>321.5</ele>
+      <name>WP2</name>
+    </rtept>
+    <rtept lat="42.869518" lon="-8.522749">
+      <ele>329.4</ele>
+      <name>WP3</name>
+    </rtept>
+    <rtept lat="42.864129" lon="-8.514390">
+      <ele>355.3</ele>
+      <name>WP4</name>
+    </rtept>
+    <rtept lat="42.859258" lon="-8.506380">
+      <ele>378.3</ele>
+      <name>WP5</name>
+    </rtept>
+    <rtept lat="42.854663" lon="-8.501829">
+      <ele>383.4</ele>
+      <name>WP6</name>
+    </rtept>
+    <rtept lat="42.849336" lon="-8.491704">
+      <ele>399.6</ele>
+      <name>WP7</name>
+    </rtept>
+    <rtept lat="42.844790" lon="-8.485882">
+      <ele>402.2</ele>
+      <name>WP8</name>
+    </rtept>
+    <rtept lat="42.839346" lon="-8.477141">
+      <ele>393.7</ele>
+      <name>WP9</name>
+    </rtept>
+    <rtept lat="42.834560" lon="-8.466466">
+      <ele>388.1</ele>
+      <name>WP10</name>
+    </rtept>
+    <rtept lat="42.830238" lon="-8.461017">
+      <ele>386.8</ele>
+      <name>WP11</name>
+    </rtept>
+    <rtept lat="42.824824" lon="-8.451797">
+      <ele>372.1</ele>
+      <name>WP12</name>
+    </rtept>
+    <rtept lat="42.819560" lon="-8.445451">
+      <ele>361.5</ele>
+      <name>WP13</name>
+    </rtept>
+    <rtept lat="42.815769" lon="-8.435897">
+      <ele>354.2</ele>
+      <name>WP14</name>
+    </rtept>
+    <rtept lat="42.810604" lon="-8.426821">
+      <ele>343.3</ele>
+      <name>WP15</name>
+    </rtept>
+    <rtept lat="42.805564" lon="-8.420564">
+      <ele>315.0</ele>
+      <name>WP16</name>
+    </rtept>
+    <rtept lat="42.799969" lon="-8.410349">
+      <ele>294.2</ele>
+      <name>WP17</name>
+    </rtept>
+    <rtept lat="42.794777" lon="-8.405281">
+      <ele>270.8</ele>
+      <name>WP18</name>
+    </rtept>
+    <rtept lat="42.789438" lon="-8.394417">
+      <ele>261.3</ele>
+      <name>WP19</name>
+    </rtept>
+    <rtept lat="42.784117" lon="-8.386034">
+      <ele>239.4</ele>
+      <name>WP20</name>
+    </rtept>
+    <rtept lat="42.780534" lon="-8.378002">
+      <ele>233.8</ele>
+      <name>WP21</name>
+    </rtept>
+    <rtept lat="42.774200" lon="-8.371373">
+      <ele>208.2</ele>
+      <name>WP22</name>
+    </rtept>
+    <rtept lat="42.770633" lon="-8.362331">
+      <ele>196.0</ele>
+      <name>WP23</name>
+    </rtept>
+    <rtept lat="42.765993" lon="-8.357122">
+      <ele>207.6</ele>
+      <name>WP24</name>
+    </rtept>
+    <rtept lat="42.760595" lon="-8.348581">
+      <ele>207.2</ele>
+      <name>WP25</name>
+    </rtept>
+    <rtept lat="42.755690" lon="-8.341296">
+      <ele>206.0</ele>
+      <name>WP26</name>
+    </rtept>
+    <rtept lat="42.750612" lon="-8.331209">
+      <ele>219.9</ele>
+      <name>WP27</name>
+    </rtept>
+    <rtept lat="42.744056" lon="-8.323198">
+      <ele>231.7</ele>
+      <name>WP28</name>
+    </rtept>
+    <rtept lat="42.740127" lon="-8.315748">
+      <ele>230.6</ele>
+      <name>WP29</name>
+    </rtept>
+    <rtept lat="42.735976" lon="-8.306473">
+      <ele>253.4</ele>
+      <name>WP30</name>
+    </rtept>
+    <rtept lat="42.729618" lon="-8.300038">
+      <ele>263.9</ele>
+      <name>WP31</name>
+    </rtept>
+    <rtept lat="42.724465" lon="-8.293125">
+      <ele>292.2</ele>
+      <name>WP32</name>
+    </rtept>
+    <rtept lat="42.719001" lon="-8.282328">
+      <ele>305.7</ele>
+      <name>WP33</name>
+    </rtept>
+    <rtept lat="42.714261" lon="-8.275132">
+      <ele>339.5</ele>
+      <name>WP34</name>
+    </rtept>
+    <rtept lat="42.710689" lon="-8.268706">
+      <ele>339.8</ele>
+      <name>WP35</name>
+    </rtept>
+    <rtept lat="42.705173" lon="-8.258331">
+      <ele>371.2</ele>
+      <name>WP36</name>
+    </rtept>
+    <rtept lat="42.700693" lon="-8.250557">
+      <ele>388.6</ele>
+      <name>WP37</name>
+    </rtept>
+    <rtept lat="42.694747" lon="-8.242232">
+      <ele>387.8</ele>
+      <name>WP38</name>
+    </rtept>
+    <rtept lat="42.689202" lon="-8.236793">
+      <ele>389.5</ele>
+      <name>WP39</name>
+    </rtept>
+    <rtept lat="42.684315" lon="-8.226205">
+      <ele>405.7</ele>
+      <name>WP40</name>
+    </rtept>
+  </rte>
+</gpx>

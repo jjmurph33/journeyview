@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="test-generator"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>World Landmarks</name>
+    <desc>Notable places around the globe</desc>
+    <time>2024-06-01T08:00:00Z</time>
+  </metadata>
+  <wpt lat="48.858400" lon="2.294500">
+    <ele>35.0</ele>
+    <name>Eiffel Tower</name>
+    <sym>Tower</sym>
+  </wpt>
+  <wpt lat="40.689200" lon="-74.044500">
+    <ele>10.0</ele>
+    <name>Statue of Liberty</name>
+    <sym>Monument</sym>
+  </wpt>
+  <wpt lat="-13.163100" lon="-72.545000">
+    <ele>2430.0</ele>
+    <name>Machu Picchu</name>
+    <sym>Ruin</sym>
+  </wpt>
+  <wpt lat="40.431900" lon="116.570400">
+    <ele>680.0</ele>
+    <name>Great Wall</name>
+    <sym>Wall</sym>
+  </wpt>
+  <wpt lat="-33.856800" lon="151.215300">
+    <ele>5.0</ele>
+    <name>Sydney Opera</name>
+    <sym>Building</sym>
+  </wpt>
+  <wpt lat="41.890200" lon="12.492200">
+    <ele>20.0</ele>
+    <name>Colosseum</name>
+    <sym>Ruin</sym>
+  </wpt>
+  <wpt lat="27.175100" lon="78.042100">
+    <ele>170.0</ele>
+    <name>Taj Mahal</name>
+    <sym>Monument</sym>
+  </wpt>
+  <wpt lat="-22.951900" lon="-43.210500">
+    <ele>710.0</ele>
+    <name>Christ Redeemer</name>
+    <sym>Statue</sym>
+  </wpt>
+</gpx>
