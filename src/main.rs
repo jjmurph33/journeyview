@@ -1,6 +1,3 @@
-// cargo run for native
-// run-trunk.sh for web
-
 mod app;
 mod journey;
 
@@ -17,14 +14,12 @@ fn main() -> eframe::Result {
     };
 
     let (name, gpx) = journey::import_sample().unwrap();
-    //let url = String::from("http://localhost:8001");
 
     eframe::run_native(
         "Journey View",
         options,
         Box::new(|cc| {
             setup_dark_theme(&cc.egui_ctx);
-            //Ok(Box::new(app::App::new(gpx, name, Some(url))))
             Ok(Box::new(app::App::new(gpx, name, None)))
         }),
     )
