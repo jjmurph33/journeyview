@@ -421,7 +421,7 @@ pub fn m_to_ft(value: f64) -> f64 {
     value * 3.28084
 }
 
-// returns Vec of JourneySegments for the plot
+// returns JourneySegments for the map plot
 pub fn plot_segments(gpx: &Gpx) -> Vec<JourneySegment> {
     let mut segments = Vec::new();
     for (i, track) in gpx.tracks.iter().enumerate() {
@@ -447,7 +447,7 @@ pub fn plot_segments(gpx: &Gpx) -> Vec<JourneySegment> {
     segments
 }
 
-// returns Vec of JourneySegments for the elevation plot
+// returns JourneySegments for the elevation plot
 pub fn elevation_segments(gpx: &Gpx) -> Vec<JourneySegment> {
     let mut segments = Vec::new();
     let mut distance = 0.0;

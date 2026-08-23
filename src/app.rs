@@ -14,14 +14,16 @@ use qrcode::QrCode;
 
 static BUTTON_TEXT_SIZE: f32 = 22.0;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Default)]
 enum Mode {
+    #[default]
     Normal,
     Import,
     Export,
     Info,
 }
 
+#[derive(Default)]
 pub struct App {
     gpx: Gpx,
     distance: f64,       // miles
@@ -32,58 +34,47 @@ pub struct App {
     name_editing: bool,
     name_buffer: String,
     import_buffer: String,
-    plot_segments: Vec<JourneySegment>,
-    elevation_segments: Vec<JourneySegment>,
+    plot_segments: Option<Vec<JourneySegment>>,
+    elevation_segments: Option<Vec<JourneySegment>>,
     mode: Mode,
     export_string: String,
     qrcode: Option<TextureHandle>,
     url: Option<String>,
     show_elevation: bool,
     reset_plot: bool,
+    include_url: bool,
 }
 
 impl App {
     pub fn new(gpx: Gpx, name: String, url: Option<String>) -> Self {
-        let distance = km_to_mi(distance(&gpx));
-        let min_elevation = m_to_ft(min_elevation(&gpx));
-        let max_elevation = m_to_ft(max_elevation(&gpx));
-        let diff_elevation = max_elevation - min_elevation;
-        let plot_segments = plot_segments(&gpx);
-        let elevation_segments = elevation_segments(&gpx);
-        Self {
+        let mut app = Self {
             gpx,
             name,
-            distance,
-            min_elevation,
-            max_elevation,
-            diff_elevation,
-            name_editing: false,
-            name_buffer: String::new(),
-            import_buffer: String::new(),
-            plot_segments,
-            elevation_segments,
-            mode: Mode::Normal,
-            export_string: String::new(),
-            qrcode: None,
             url,
-            show_elevation: false,
-            reset_plot: true,
-        }
+            ..Default::default()
+        };
+        app.init();
+        app
     }
 
-    fn load(&mut self, gpx: Gpx, name: Option<String>) {
-        self.gpx = gpx;
+    fn init(&mut self) {
         self.distance = km_to_mi(distance(&self.gpx));
         self.min_elevation = m_to_ft(min_elevation(&self.gpx));
         self.max_elevation = m_to_ft(max_elevation(&self.gpx));
         self.diff_elevation = self.max_elevation - self.min_elevation;
-        self.plot_segments = plot_segments(&self.gpx);
-        self.elevation_segments = elevation_segments(&self.gpx);
+        self.plot_segments = Some(plot_segments(&self.gpx));
+        self.elevation_segments = Some(elevation_segments(&self.gpx));
+        self.include_url = self.url.is_some();
+    }
+
+    fn load(&mut self, gpx: Gpx, name: Option<String>) {
+        self.gpx = gpx;
         self.name = if let Some(name) = name {
             name
         } else {
             journey::name_from_gpx(&self.gpx)
         };
+        self.init();
         self.reset_ui();
     }
 
@@ -121,6 +112,8 @@ impl App {
                             || ui.ctx().input(|i| i.key_pressed(Key::Enter))
                         {
                             self.name = self.name_buffer.clone();
+                            // clear the export string so it will get rebuilt with the new name
+                            self.export_string.clear();
                             self.name_editing = false;
                         }
                         if ui.small_button("Cancel").clicked()
@@ -162,7 +155,7 @@ impl App {
                     );
                     let button = ui.add(
                         Button::new(
-                            RichText::new("\u{2139}")
+                            RichText::new("\u{2139}") // information character ('i' inside a circle)
                                 .size(10.0)
                                 .color(Color32::from_rgb(255, 255, 255)),
                         )
@@ -256,6 +249,7 @@ impl App {
                     .clicked()
                 {
                     self.show_elevation = !self.show_elevation;
+                    self.mode = Mode::Normal;
                 }
             });
         });
@@ -310,98 +304,119 @@ impl App {
     }
 
     fn export_panel(&mut self, ui: &mut Ui) {
+        let mut size = ui.available_size();
+        size.x *= 0.5;
+        size.y *= 0.9;
+
+        let mut url = self.url.clone().unwrap_or_default();
+
         if self.export_string.is_empty() {
             self.export_string = journey::export(&self.name, &self.gpx);
-            let include_url = true; //TODO: make this a radio button
-            if include_url
-                && !self.export_string.is_empty()
-                && let Some(url) = self.url.as_ref()
-            {
-                let export_url = format!("{}/?j=", url);
-                self.export_string.insert_str(0, &export_url);
-            }
         }
+        let mut export_string = self.export_string.clone(); // temp copy that may include url
 
-        if self.qrcode.is_none() && !self.export_string.is_empty() {
-            self.qrcode = Some(qr_to_texture(ui.ctx(), &self.export_string));
-        }
+        let mut changed = false;
 
-        let id = egui::Id::new("export_text");
-        let initialized = ui.memory(|m| m.data.get_temp::<bool>(id)).unwrap_or(false);
+        ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.spacing();
+                    ui.horizontal(|ui| {
+                        ui.spacing();
+                        if ui
+                            .checkbox(&mut self.include_url, "Include URL: ")
+                            .changed()
+                        {
+                            changed = true;
+                        }
+                        if ui
+                            .add_enabled(self.include_url, TextEdit::singleline(&mut url))
+                            .changed()
+                        {
+                            self.url.replace(url.to_string());
+                            changed = true;
+                        };
+                        if self.include_url {
+                            let export_url = format!("{}/?j=", url);
+                            export_string.insert_str(0, &export_url);
+                        }
+                    });
 
-        let mut size = ui.available_size();
-        size.x /= 2.0;
-        size.y -= 80.0;
+                    ui.spacing();
 
-        ui.with_layout(Layout::right_to_left(Align::TOP), |ui| {
-            ui.add_sized(
-                size,
-                TextEdit::multiline(&mut self.export_string.as_str())
-                    .font(FontId::new(18.0, FontFamily::Proportional))
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(20)
-                    .id(id),
-            );
-            // select all of the text
-            if !initialized {
-                let mut state = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
-                state
-                    .cursor
-                    .set_char_range(Some(egui::text::CCursorRange::two(
-                        egui::text::CCursor::new(0),
-                        egui::text::CCursor::new(self.export_string.clone().chars().count()),
-                    )));
-                state.store(ui.ctx(), id);
-                ui.memory_mut(|m| {
-                    m.request_focus(id);
-                    // set initialized flag
-                    m.data.insert_temp(id, true);
+                    let id = egui::Id::new("export_text");
+                    let initialized = ui.memory(|m| m.data.get_temp::<bool>(id)).unwrap_or(false);
+                    ui.add(
+                        TextEdit::multiline(&mut export_string.as_str())
+                            .font(FontId::new(18.0, FontFamily::Proportional))
+                            .desired_width(size.x)
+                            .desired_rows(20)
+                            .id(id),
+                    );
+                    // select all of the text when first entering
+                    if !initialized {
+                        let mut state = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+                        state
+                            .cursor
+                            .set_char_range(Some(egui::text::CCursorRange::two(
+                                egui::text::CCursor::new(0),
+                                egui::text::CCursor::new(export_string.clone().chars().count()),
+                            )));
+                        state.store(ui.ctx(), id);
+                        ui.memory_mut(|m| {
+                            m.request_focus(id); // give focus to the text area
+                            m.data.insert_temp(id, true); // set initialized flag
+                        });
+                    }
                 });
-            }
 
-            if let Some(texture) = &self.qrcode {
-                ui.add_sized(size, Image::new(texture).shrink_to_fit());
-            } else {
-                ui.add_sized(size, Label::new("Error Generating QRCode"));
-            }
-        });
-
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if ui
-                .add(
-                    Button::new(
-                        RichText::new("Cancel")
-                            .size(16.0)
-                            .color(Color32::from_rgb(255, 255, 255)),
-                    )
-                    .min_size(Vec2::new(150.0, 50.0))
-                    .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                    .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
-                )
-                .clicked()
-            {
-                self.mode = Mode::Normal;
-            }
-            if ui
-                .add(
-                    Button::new(
-                        RichText::new("Copy to clipboard")
-                            .size(16.0)
-                            .color(Color32::from_rgb(255, 255, 255)),
-                    )
-                    .min_size(Vec2::new(150.0, 50.0))
-                    .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                    .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
-                )
-                .clicked()
-                && !self.export_string.trim().is_empty()
-            {
-                println!("{}\n", self.export_string.clone());
-                if set_clipboard(self.export_string.clone()) {
-                    // TODO: show a status message that the text was copied to the clipboard
+                if self.qrcode.is_none() || changed {
+                    self.qrcode = Some(qr_to_texture(ui.ctx(), &export_string)); // generate the QR code
                 }
-                self.mode = Mode::Normal;
-            }
+                if let Some(texture) = &self.qrcode {
+                    ui.add_sized(size, Image::new(texture).shrink_to_fit());
+                } else {
+                    ui.add_sized(size, Label::new("Error Generating QRCode"));
+                }
+            });
+
+            ui.horizontal(|ui| {
+                if ui
+                    .add(
+                        Button::new(
+                            RichText::new("Copy to clipboard")
+                                .size(16.0)
+                                .color(Color32::from_rgb(255, 255, 255)),
+                        )
+                        .min_size(Vec2::new(150.0, 50.0))
+                        .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                        .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                    )
+                    .clicked()
+                    && !export_string.trim().is_empty()
+                {
+                    println!("{}\n", export_string.clone());
+                    if set_clipboard(export_string.clone()) {
+                        // TODO: show a status message that the text was copied to the clipboard
+                    }
+                    self.mode = Mode::Normal;
+                }
+                if ui
+                    .add(
+                        Button::new(
+                            RichText::new("Cancel")
+                                .size(16.0)
+                                .color(Color32::from_rgb(255, 255, 255)),
+                        )
+                        .min_size(Vec2::new(150.0, 50.0))
+                        .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                        .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                    )
+                    .clicked()
+                {
+                    self.mode = Mode::Normal;
+                }
+            });
         });
     }
 
@@ -456,37 +471,41 @@ impl App {
             self.reset_plot = false;
         }
 
-        // draw the plot and save the response
+        // draw the plot (either map or elevation) and save the response
         let response = if elevation {
             plot.show(ui, |plot_ui| {
-                for segment in &self.elevation_segments {
-                    plot_ui.line(
-                        Line::new("Track", segment.points.clone())
-                            .name(&segment.name)
-                            .color(segment.color)
-                            .width(2.5),
-                    );
-                }
-                let scroll_delta = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
-                if scroll_delta != 0.0 {
-                    let zoom_factor = if scroll_delta > 0.0 { 1.0 / 1.1 } else { 1.1 };
-                    plot_ui.zoom_bounds_around_hovered(Vec2::splat(zoom_factor));
+                if let Some(segments) = &self.elevation_segments {
+                    for segment in segments {
+                        plot_ui.line(
+                            Line::new("Track", segment.points.clone())
+                                .name(&segment.name)
+                                .color(segment.color)
+                                .width(2.5),
+                        );
+                    }
+                    let scroll_delta = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
+                    if scroll_delta != 0.0 {
+                        let zoom_factor = if scroll_delta > 0.0 { 1.0 / 1.1 } else { 1.1 };
+                        plot_ui.zoom_bounds_around_hovered(Vec2::splat(zoom_factor));
+                    }
                 }
             })
         } else {
             plot.show(ui, |plot_ui| {
-                for segment in &self.plot_segments {
-                    plot_ui.line(
-                        Line::new("Track", segment.points.clone())
-                            .name(&segment.name)
-                            .color(segment.color)
-                            .width(2.5),
-                    );
-                }
-                let scroll_delta = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
-                if scroll_delta != 0.0 {
-                    let zoom_factor = if scroll_delta > 0.0 { 1.0 / 1.1 } else { 1.1 };
-                    plot_ui.zoom_bounds_around_hovered(Vec2::splat(zoom_factor));
+                if let Some(segments) = &self.plot_segments {
+                    for segment in segments {
+                        plot_ui.line(
+                            Line::new("Track", segment.points.clone())
+                                .name(&segment.name)
+                                .color(segment.color)
+                                .width(2.5),
+                        );
+                    }
+                    let scroll_delta = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
+                    if scroll_delta != 0.0 {
+                        let zoom_factor = if scroll_delta > 0.0 { 1.0 / 1.1 } else { 1.1 };
+                        plot_ui.zoom_bounds_around_hovered(Vec2::splat(zoom_factor));
+                    }
                 }
             })
         };
@@ -503,7 +522,7 @@ impl App {
         let resp = ui
             .put(
                 btn_rect,
-                Button::new(RichText::new("\u{1F504}").size(20.0))
+                Button::new(RichText::new("\u{1F504}").size(20.0)) // the reload character
                     .fill(Color32::from_rgb(33, 150, 243))
                     .stroke(Stroke::new(1.5, Color32::BLACK)),
             )
@@ -586,14 +605,14 @@ impl eframe::App for App {
                 } else {
                     self.map_panel(ui, false);
                 }
-                // TODO: why only in Normal mode?
-                let ctx = ui.ctx().clone();
-                self.handle_dropped_files(&ctx);
             }
             Mode::Import => self.import_panel(ui),
             Mode::Export => self.export_panel(ui),
             Mode::Info => self.info_panel(ui),
         });
+
+        let ctx = ui.ctx().clone();
+        self.handle_dropped_files(&ctx);
     }
 }
 

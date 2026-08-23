@@ -9,7 +9,7 @@ mod journey;
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([1600.0, 800.0])
+            .with_inner_size([1800.0, 1000.0])
             .with_min_inner_size([1200.0, 600.0])
             .with_maximized(true)
             .with_drag_and_drop(true),
@@ -17,14 +17,15 @@ fn main() -> eframe::Result {
     };
 
     let (name, gpx) = journey::import_sample().unwrap();
-    let url = String::from("http://localhost:8001");
+    //let url = String::from("http://localhost:8001");
 
     eframe::run_native(
         "Journey View",
         options,
         Box::new(|cc| {
             setup_dark_theme(&cc.egui_ctx);
-            Ok(Box::new(app::App::new(gpx, name, Some(url))))
+            //Ok(Box::new(app::App::new(gpx, name, Some(url))))
+            Ok(Box::new(app::App::new(gpx, name, None)))
         }),
     )
 }
