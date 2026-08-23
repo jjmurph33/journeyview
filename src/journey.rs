@@ -1,4 +1,4 @@
-use base64::{Engine, engine::general_purpose::URL_SAFE};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use flexpolyline::Polyline;
 use geo_types::Point;
 use gpx::{Gpx, GpxVersion, Link, Track, TrackSegment, Waypoint};
@@ -9,6 +9,7 @@ use std::io::BufReader;
 #[derive(Serialize, Deserialize)]
 pub struct Journey {
     name: String,
+    version: String,
     polyline: String,
 }
 
@@ -45,7 +46,7 @@ fn to_polyline(gpx: &Gpx) -> String {
         .collect();
     let polyline = Polyline::Data3d {
         coordinates,
-        precision2d: flexpolyline::Precision::Digits6,
+        precision2d: flexpolyline::Precision::Digits5,
         precision3d: flexpolyline::Precision::Digits0,
         type3d: flexpolyline::Type3d::Elevation,
     };
@@ -77,29 +78,34 @@ fn from_polyline(polyline: &str) -> Gpx {
 
 fn encode(name: &str, polyline: &str) -> String {
     // name and polyline are joined with a "|" character and then compressed and base64 encoded
-    //TODO: check for "|" character in the name when importing or renaming
-    let data = format!("{}|{}", name, polyline);
+    let version = 1; // version number: change this if the format changes
+    let name = name.replace("|", "-"); // replace any "|" characters in the name
+    let data = format!("{}|{}|{}", name, version, polyline);
     let bytes = data.as_bytes();
-    // 22 = maximum compression
-    match zstd::encode_all(bytes, 22) {
-        Ok(compressed) => return URL_SAFE.encode(&compressed),
+    match zstd::encode_all(bytes, 0) {
+        Ok(compressed) => {
+            let x = URL_SAFE_NO_PAD.encode(&compressed);
+            println!("\n{}\nlength={}\n", x, x.len());
+            return x;
+        }
         Err(e) => eprint!("Error compressing data: {}", e),
     }
     String::new()
 }
 
 pub fn decode(encoded: &str) -> Option<Journey> {
-    match URL_SAFE.decode(encoded) {
+    match URL_SAFE_NO_PAD.decode(encoded) {
         Ok(bytes) => match zstd::decode_all(bytes.as_slice()) {
             Ok(decompressed) => match String::from_utf8(decompressed) {
                 Ok(decoded) => {
-                    //println!("decoded:\n{}\n", decoded);
-                    if let Some((name, polyline)) = decoded.split_once("|") {
-                        //println!("name = {}", name);
-                        //println!("polyline = {}", polyline);
+                    let parts: Vec<&str> = decoded.split("|").collect();
+                    if parts.len() < 3 {
+                        return None;
+                    } else {
                         let journey = Journey {
-                            name: name.to_string(),
-                            polyline: polyline.to_string(),
+                            name: parts[0].to_string(),
+                            version: parts[1].to_string(),
+                            polyline: parts[2].to_string(),
                         };
                         return Some(journey);
                     }
@@ -483,4 +489,4 @@ pub fn elevation_segments(gpx: &Gpx) -> Vec<JourneySegment> {
     segments
 }
 
-const SAMPLE_JOURNEY: &str = r#"KLUv_QCIVSoAqnUgFCUAScwcULHvkvC37OEHp0Cb4NwIOWhTUlKCi0r5LuL_nf7__y8hPAE5ATYBB9YGKJguZGfEC4uenNkuMPWOqSa5pkykF8Z2L9scOCZh21NHFLGP6eF74wk5soR1aw-5QHS_E6Q3ZaQfwsA-QRvJrUTsN1nI3xZIr0lsncHrn8ZgH7YDFBcGvoVXK8PadmW1dE2tX42t6F20QT44lolxZfXSlP9pEf0aJeBWmIL9V7aAm_QsjezbDv6xnNKt5P4htookyg54F3z2rQO50BSLxxZEr4DPgUTRZcRe1reeFl3gyDLFTeOp1DQL3jSaoJFoMZ6kp5qwYIqpbApfMgmtYVPMLLTSmnZhpwNP8S1qprFvhifJrd3wt2QkRUQp0k-7tSOy2Ucgo6011n9JxPshD2llVxbbJDS1TtFCKiZF5Jhi_5NOkrSphh9BK_KDWpHCyksVHUFALYZZGkk6EMfZkIANFlAuBDBZBAx8jqR9acf4MGJfg4ToE9hEbNjCs8aSiAnbRY-y-c3uo_Chb8Iqt-Gtr11moWSKq0k7xs72tI5lhh-JAHfN4DNp4d2CLwst45DQJ4KhZ2wnDW08e3x8djDgSSTt-GmEGPqDztoPPFlow5Zsik4aW3ncvso-thHa9SPQED1Lm0iKYGQXk04tFQ5I76KG5QI7umHh5B9CQfQMVtIe2EG9MLePHS9tA_5tkiRNWUknoJNPQ0M_S6_8zfspOZEYlDTsMyjJv-C2kAjfkvXUfgUjjQW1ld6Nt8YfmJIakx4OnlmrFRQlRF7Ayj-KUvsYZSJHHPw7ZLMPw-YZwdsvw4VsjDVpm8canfoEfUluapHgUyeCD78RjqQamNrkulkCbjWwwpdUq7HPQ1ubWlP_lBYirPgksbaExI4rywEJZsMaonx09ZTjijXBEBtwK34ouHIIL1S14y20DlyIM08Id5wZS3wvfjBw0lmUh76UrYWiBC3JtHCCgR06zTHyYQeXHTqgIclgQ4C9GMKG6MML4Yqdayj6SXau6BBC73DC7igEn9NI4p7QSh0qwHiOHQypUwaeEDsKtiynL9EHL7h0lB9NPIWDk-hZGO_gSgydS4L-BCP8FW4sPWrhPwn4HwPcnF78TgD1LClRSriAC-FNOWOKFQ9W3I5aLlW5uSfcQk9gwd-J2A0owWcQgG5JBxtaCz6UGPaljTcezDB3i3gCflJ1sMWLK7WngAuuGjOcFW78-cAGOuI4cfMQ8EXAOq45P5aA7NiIvwUjvM8yDx0m6PdGYCWNg0vdM5wZEzAhRvDqTnjLtLwVfUQZ9EUiIfRMqei50XPyoZboH2l4sD84SUVsop-CVvQQPOhPBKBfCWFb9NFH5A6MoD-aJT68crZwFnkiL-1HK_8EXuiQfJSd7aKuJEkA3YwzdycfLnGZYWebKVfNPenZzjv3aiW8kzUgV-uo5bFFK4YwJ9Z5__CE92KJd9YZ-9WO97MTZgNzy9dyDE50FfGjED-HlOdQTvomDNQdy_iOgP-zQL9rb3SL8T_w4G-Q1CHk9DPM2BOaeJ5AA3KiIRFL1vDcQYfbsVykib44HX5wuYWiTSznnqlF-9kM2bGTaK-GvJ8seIoEWvg7xPS5A8gvIfBegpdKz0r4q-zQoZS8r7B6kgM7VYizdEsN75N27A9XIsUjKexcTngtbGG38LUGdygdb8lmCn_sE-njH_eHGlSdrpQtDMGv8KFQCQcYCIB9QSnEmhco4SrOzayF3hpmLBkDEaPHOHHEVepugGDi0ya2QoxZwK0CTJSv0glnNVdhOBCCw18LguTOKA=="#;
+const SAMPLE_JOURNEY: &str = r#"KLUv_QCIHRsAqkXMCyMwa4EeWMdxXddldVVV6ANJgD_WLdq2bWspqQ08-GQwNBRUcLwAsgCvAIkfUSVuYYwJL_h0rjhVRI7Rk3j4wCJGHWecM-woh_GCcqUV05OVRi56AU_CFIzbOJ7JUdHZoZSIeIExnIqB3iDGMG-OYtA5kuKFd6Yr53ABdoovL3zkhvUJPSncET1OqKhWCTzYwsiSw814inlUwUXhWNGHU5hkj0IdkR2QGcXYwTEFokQ5g7ooEMM8UadwrgpP3GEH3sMpRTFucKycTdiyw_cWS8Nj8PCAQTkIECAAC-AIAiI0DwQYAAMXK6OKcufbZg-z3nQzfSLhkDokziTUeiEZS9QLO4ibhPOCpBhV8UFnqK7xJLBG0Ut1KEqkc_IUC8YEb54fDTG_jVtH7HBY03xKxA-vGt6mGZTspK9UvLBH-cM8atZRFjGJcYLkzR8FOW5YxA2KKw75AERwQiYyXuAiAxEXYJsg1TDnBbfKUY1SM6o4TzFZVNAe6hxnp3uC2FQwnjY9Fc4J9HhYoVjhqFh0sBjPz-OoiZTiZosgmJD_RHrEa7qKdiTW6Un0vWxN35K8tA89K4lH-RGPGLukxAOekf7auO4yw0p1deVXGVovnJJskuglPRtYLdviAb0KvBgCYoQ1MzBezi_-xvqF21BL9BssKahUD0ZQWvZrswIz8nhRTFliBcXLuDjpN58JoOSKVzPt_FMkn6unfEkiIFOYqj8R188-B338kJih-TR5zX-xXzxJWQVyXcwIFhtsl-WEbdr-C298FxSr8F1_a_o-jkCM78JcexHnuk4bSco1Vlq6JbH0PTNsN5nqJ4XEtLU0Vr-akPfv9ZJLtpdvLTJR-gZNxnsqnXhP0qXtq6-KOqHfwqmeXjZxA_gVpeU08l27NqZ0If-IJV4yWhuP6dtG1-KLCfwv3vWwwn7ltXQzw_uaGEmr9ncjztHU0R6ZywPUI-mffIRINTXj7VoS0rrRlpIrt0VfEpvkWvKbfNr4EY1AnjACNSgQEEIUwx7gHSi872yBm-rnWQyLkr8wFHoyZyWs0Ebdsq7ADGVUY5cE_jMlqNy9Tol-wpUlt-1BZ_eeUWNQYEAtELUMkvESIHtoviTMGSi3jmkCtzprDREyVm4CzLKbW2gfm1bFMHqAZCUK"#;
