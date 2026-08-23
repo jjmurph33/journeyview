@@ -16,8 +16,19 @@
                 height: 100%;
             }
         </style>
-        <link data-trunk rel="rust" />
-    </head>
+        
+<script type="module">
+import init, * as bindings from './journeyview.js';
+const wasm = await init({ module_or_path: './journeyview_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+    <link rel="modulepreload" href="./journeyview.js" crossorigin="anonymous"><link rel="preload" href="./journeyview_bg.wasm" crossorigin="anonymous" as="fetch" type="application/wasm"></head>
     <body>
         <canvas id="rust-canvas"></canvas>
     </body>
