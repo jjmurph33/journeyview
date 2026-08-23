@@ -337,7 +337,7 @@ impl App {
                             changed = true;
                         };
                         if self.include_url {
-                            let export_url = format!("{}/?j=", url);
+                            let export_url = format!("{}/?j=", url.trim_end_matches("/"));
                             export_string.insert_str(0, &export_url);
                         }
                     });
@@ -381,25 +381,28 @@ impl App {
             });
 
             ui.horizontal(|ui| {
-                if ui
-                    .add(
-                        Button::new(
-                            RichText::new("Copy to clipboard")
-                                .size(16.0)
-                                .color(Color32::from_rgb(255, 255, 255)),
-                        )
-                        .min_size(Vec2::new(150.0, 50.0))
-                        .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                        .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
-                    )
-                    .clicked()
-                    && !export_string.trim().is_empty()
+                #[cfg(not(target_arch = "wasm32"))]
                 {
-                    println!("{}\n", export_string.clone());
-                    if set_clipboard(export_string.clone()) {
-                        // TODO: show a status message that the text was copied to the clipboard
+                    if ui
+                        .add(
+                            Button::new(
+                                RichText::new("Copy to clipboard")
+                                    .size(16.0)
+                                    .color(Color32::from_rgb(255, 255, 255)),
+                            )
+                            .min_size(Vec2::new(150.0, 50.0))
+                            .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                            .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                        )
+                        .clicked()
+                        && !export_string.trim().is_empty()
+                    {
+                        println!("{}\n", export_string.clone());
+                        if set_clipboard(export_string.clone()) {
+                            // TODO: show a status message that the text was copied to the clipboard
+                        }
+                        self.mode = Mode::Normal;
                     }
-                    self.mode = Mode::Normal;
                 }
                 if ui
                     .add(
@@ -630,20 +633,17 @@ fn read_clipboard() -> Option<String> {
     }
 }
 
-#[allow(unused_variables)]
 fn set_clipboard(text: String) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
         if let Ok(mut clipboard) = arboard::Clipboard::new() {
-            clipboard.set_text(text).is_ok()
+            return clipboard.set_text(text).is_ok();
         } else {
-            false
+            return false;
         }
     }
     #[cfg(target_arch = "wasm32")]
-    {
-        return false;
-    }
+    return false;
 }
 
 fn qr_to_texture(ctx: &egui::Context, data: &str) -> TextureHandle {

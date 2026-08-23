@@ -59,9 +59,12 @@ fn main() {
 
         let (mut name, mut gpx) = journey::import_sample().unwrap();
 
-        let mut url = String::from("http://localhost:8001");
+        let mut url = String::new();
         if let Ok(origin) = window.location().origin() {
             url = origin;
+        }
+        if let Ok(pathname) = window.location().pathname() {
+            url.push_str(&pathname);
         }
 
         if let Ok(search) = window.location().search() {
