@@ -1,7 +1,8 @@
 # Journey View
 
-Rust app for viewing GPX files and sharing them with friends.
-It can run as a native desktop app or in the browser with WebAssembly.
+Rust app for viewing GPX files and sharing them with friends.  
+
+Built with [egui](https://github.com/emilk/egui), it can run as a native desktop app or in the browser with WebAssembly.
 
 ## Requirements
 
@@ -15,17 +16,14 @@ rustup target add wasm32-unknown-unknown
 cargo install trunk
 ```
 
-## Run natively
+## Build
 
-```sh
-cargo run
+```
+cargo build --release
 ```
 
-## Run in the browser
+## Web
 
-```sh
-./run-trunk.sh
 ```
-
-The web app serves on port `8001` by default.
-
+trunk build --release
+```

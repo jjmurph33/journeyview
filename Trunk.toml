@@ -1,0 +1,7 @@
+[build]
+# Disable hashing in filenames for cleaner output
+filehash = false
+# Disable SRI (Subresource Integrity) to reduce file size
+no_sri = true
+# Use relative paths instead of absolute paths
+public_url = "./"
