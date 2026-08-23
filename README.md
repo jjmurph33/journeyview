@@ -1,8 +1,8 @@
 # Journey View
 
-Rust app for viewing GPX files and sharing them with friends.  
+Program for viewing [GPX](https://en.wikipedia.org/wiki/GPS_Exchange_Format) files and sharing them with friends.  
 
-Built with [egui](https://github.com/emilk/egui), it can run as a native desktop app or in the browser with WebAssembly.
+Built with Rust and [egui](https://github.com/emilk/egui), it can run as a native desktop app or in the browser with WebAssembly.
 
 ## Requirements
 
