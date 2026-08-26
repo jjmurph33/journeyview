@@ -589,36 +589,6 @@ impl App {
     }
 }
 
-impl eframe::App for App {
-    // called automatically every frame
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        let frame = Frame::default()
-            .fill(Color32::from_rgb(35, 35, 45))
-            .stroke(Stroke::new(1.5, Color32::from_rgb(80, 80, 100)))
-            .inner_margin(Margin::symmetric(10, 8));
-
-        Panel::top("top_panel").frame(frame).show(ui, |ui| {
-            self.top_panel(ui);
-        });
-
-        CentralPanel::default().show(ui, |ui| match self.mode {
-            Mode::Normal => {
-                if self.show_elevation {
-                    self.map_panel(ui, true);
-                } else {
-                    self.map_panel(ui, false);
-                }
-            }
-            Mode::Import => self.import_panel(ui),
-            Mode::Export => self.export_panel(ui),
-            Mode::Info => self.info_panel(ui),
-        });
-
-        let ctx = ui.ctx().clone();
-        self.handle_dropped_files(&ctx);
-    }
-}
-
 fn read_clipboard() -> Option<String> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -689,4 +659,34 @@ fn qr_to_texture(ctx: &egui::Context, data: &str) -> TextureHandle {
     );
 
     ctx.load_texture("qrcode", image, TextureOptions::NEAREST)
+}
+
+impl eframe::App for App {
+    // called automatically every frame
+    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        let frame = Frame::default()
+            .fill(Color32::from_rgb(35, 35, 45))
+            .stroke(Stroke::new(1.5, Color32::from_rgb(80, 80, 100)))
+            .inner_margin(Margin::symmetric(10, 8));
+
+        Panel::top("top_panel").frame(frame).show(ui, |ui| {
+            self.top_panel(ui);
+        });
+
+        CentralPanel::default().show(ui, |ui| match self.mode {
+            Mode::Normal => {
+                if self.show_elevation {
+                    self.map_panel(ui, true);
+                } else {
+                    self.map_panel(ui, false);
+                }
+            }
+            Mode::Import => self.import_panel(ui),
+            Mode::Export => self.export_panel(ui),
+            Mode::Info => self.info_panel(ui),
+        });
+
+        let ctx = ui.ctx().clone();
+        self.handle_dropped_files(&ctx);
+    }
 }

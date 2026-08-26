@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::BufReader;
 
-#[derive(Serialize, Deserialize)]
+//#[derive(Serialize, Deserialize)]
 pub struct Journey {
     name: String,
     version: String,
@@ -64,9 +64,9 @@ fn from_polyline(polyline: &str) -> Gpx {
         segment.points = coordinates
             .iter()
             .map(|c| {
-                let mut wpt = Waypoint::new(Point::new(c.1, c.0));
-                wpt.elevation = Some(c.2);
-                wpt
+                let mut waypoint = Waypoint::new(Point::new(c.1, c.0));
+                waypoint.elevation = Some(c.2);
+                waypoint
             })
             .collect();
         let mut track = Track::new();
@@ -77,17 +77,13 @@ fn from_polyline(polyline: &str) -> Gpx {
 }
 
 fn encode(name: &str, polyline: &str) -> String {
-    // name and polyline are joined with a "|" character and then compressed and base64 encoded
+    // name and polyline along with the version number are joined with a "|" character and then compressed and base64 encoded
     let version = 1; // version number: change this if the format changes
     let name = name.replace("|", "-"); // replace any "|" characters in the name
     let data = format!("{}|{}|{}", name, version, polyline);
     let bytes = data.as_bytes();
     match zstd::encode_all(bytes, 0) {
-        Ok(compressed) => {
-            let x = URL_SAFE_NO_PAD.encode(&compressed);
-            println!("\n{}\nlength={}\n", x, x.len());
-            return x;
-        }
+        Ok(compressed) => return URL_SAFE_NO_PAD.encode(&compressed),
         Err(e) => eprint!("Error compressing data: {}", e),
     }
     String::new()
@@ -123,6 +119,7 @@ pub fn export(name: &str, gpx: &Gpx) -> String {
     let polyline = to_polyline(gpx);
     let journey_string = encode(name, &polyline);
     if journey_string.len() > 2000 {
+        // too long for a query string
         //TODO: try to reduce the polyline
         String::new()
     } else {
