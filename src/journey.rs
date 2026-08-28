@@ -81,7 +81,7 @@ fn encode(name: &str, polyline: &str) -> String {
     let name = name.replace("|", "-"); // replace any "|" characters in the name
     let data = format!("{}|{}|{}", name, version, polyline);
     match zstd::encode_all(data.as_bytes(), 0) {
-        Ok(compressed) => return URL_SAFE_NO_PAD.encode(&compressed),
+        Ok(compressed) => URL_SAFE_NO_PAD.encode(&compressed),
         Err(e) => {
             eprint!("Error compressing data: {}", e);
             String::new()

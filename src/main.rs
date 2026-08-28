@@ -27,7 +27,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             setup_dark_theme(&cc.egui_ctx);
-            Ok(Box::new(app::App::new(gpx, name, None)))
+            Ok(Box::new(app::App::new(&cc.egui_ctx, gpx, name, None)))
         }),
     )
 }
@@ -92,7 +92,7 @@ fn main() {
                 web_options,
                 Box::new(|cc| {
                     setup_dark_theme(&cc.egui_ctx);
-                    Ok(Box::new(app::App::new(gpx, name, Some(url))))
+                    Ok(Box::new(app::App::new(&cc.egui_ctx, gpx, name, Some(url))))
                 }),
             )
             .await

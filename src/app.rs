@@ -4,13 +4,16 @@ use crate::journey::{
 };
 use eframe::egui;
 use egui::{
-    Align, Button, CentralPanel, Color32, ColorImage, FontFamily, FontId, Frame, Image, Key, Label,
-    Layout, Margin, Panel, RichText, ScrollArea, Sense, Stroke, TextEdit, TextStyle, TextureHandle,
-    TextureOptions, Ui, Vec2,
+    Align, Button, CentralPanel, Color32, ColorImage, Context, FontFamily, FontId, Frame, Image,
+    Key, Label, Layout, Margin, Panel, RichText, ScrollArea, Sense, Stroke, TextEdit, TextStyle,
+    TextureHandle, TextureOptions, Ui, Vec2,
 };
 use egui_plot::{Line, Plot};
 use gpx::Gpx;
 use qrcode::QrCode;
+use walkers::{
+    HttpTiles, Map, MapMemory, Plugin, Position, Projector, lon_lat, sources::OpenStreetMap,
+};
 
 static BUTTON_TEXT_SIZE: f32 = 22.0;
 
@@ -43,21 +46,24 @@ pub struct App {
     show_elevation: bool,
     reset_plot: bool,
     include_url: bool,
+    map_tiles: Option<HttpTiles>,
+    map_memory: MapMemory,
+    map_center: Position,
 }
 
 impl App {
-    pub fn new(gpx: Gpx, name: String, url: Option<String>) -> Self {
+    pub fn new(ctx: &Context, gpx: Gpx, name: String, url: Option<String>) -> Self {
         let mut app = Self {
             gpx,
             name,
             url,
             ..Default::default()
         };
-        app.init();
+        app.init(ctx);
         app
     }
 
-    fn init(&mut self) {
+    fn init(&mut self, ctx: &Context) {
         self.distance = km_to_mi(distance(&self.gpx));
         self.min_elevation = m_to_ft(min_elevation(&self.gpx));
         self.max_elevation = m_to_ft(max_elevation(&self.gpx));
@@ -65,16 +71,20 @@ impl App {
         self.plot_segments = Some(plot_segments(&self.gpx));
         self.elevation_segments = Some(elevation_segments(&self.gpx));
         self.include_url = self.url.is_some();
+        self.map_tiles = Some(openstreetmap_tiles(ctx));
+        self.map_center = route_center(self.plot_segments.as_deref().unwrap_or_default());
+        self.map_memory = MapMemory::default();
+        self.map_memory.center_at(self.map_center);
     }
 
-    fn load(&mut self, gpx: Gpx, name: Option<String>) {
+    fn load(&mut self, ctx: &Context, gpx: Gpx, name: Option<String>) {
         self.gpx = gpx;
         self.name = if let Some(name) = name {
             name
         } else {
             journey::name_from_gpx(&self.gpx)
         };
-        self.init();
+        self.init(ctx);
         self.reset_ui();
     }
 
@@ -226,7 +236,7 @@ impl App {
                         )
                         .clicked()
                     {
-                        self.open_gpx_picker();
+                        self.open_gpx_picker(ui.ctx());
                     }
                 }
                 ///////////////////// Elevation/Map button //////////////////
@@ -293,7 +303,7 @@ impl App {
                 .clicked()
                 && !self.import_buffer.trim().is_empty()
             {
-                self.load_journey_string(self.import_buffer.clone());
+                self.load_journey_string(ui.ctx(), self.import_buffer.clone());
                 self.import_buffer.clear();
                 self.mode = Mode::Normal;
             }
@@ -473,7 +483,7 @@ impl App {
         });
     }
 
-    fn map_panel(&mut self, ui: &mut Ui, elevation: bool) {
+    fn _map_panel_old(&mut self, ui: &mut Ui, elevation: bool) {
         let available_height = ui.available_size().y;
 
         let mut plot = if elevation {
@@ -560,24 +570,106 @@ impl App {
         }
     }
 
+    fn elevation_panel(&mut self, ui: &mut Ui) {
+        let mut plot = Plot::new("elevation_plot")
+            .x_axis_label("Distance (mi)")
+            .y_axis_label("Feet")
+            .height(ui.available_height())
+            .show_axes(true)
+            .show_grid(true)
+            .allow_zoom(false)
+            .allow_scroll(false)
+            .allow_boxed_zoom(false);
+
+        if self.reset_plot {
+            plot = plot.reset();
+            self.reset_plot = false;
+        }
+
+        let response = plot.show(ui, |plot_ui| {
+            if let Some(segments) = &self.elevation_segments {
+                for segment in segments {
+                    plot_ui.line(
+                        Line::new("Track", segment.points.clone())
+                            .name(&segment.name)
+                            .color(segment.color)
+                            .width(2.5),
+                    );
+                }
+                let scroll_delta = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
+                if scroll_delta != 0.0 {
+                    let zoom_factor = if scroll_delta > 0.0 { 1.0 / 1.1 } else { 1.1 };
+                    plot_ui.zoom_bounds_around_hovered(Vec2::splat(zoom_factor));
+                }
+            }
+        });
+
+        if reset_button(ui, response.response.rect).clicked() {
+            self.reset_plot = true;
+        }
+    }
+
+    fn map_panel(&mut self, ui: &mut Ui) {
+        let size = ui.available_size();
+        if self.reset_plot {
+            fit_map_to_segments(
+                &mut self.map_memory,
+                &mut self.map_center,
+                self.plot_segments.as_deref().unwrap_or_default(),
+                size,
+            );
+            self.reset_plot = false;
+        }
+
+        let Some(tiles) = self.map_tiles.as_mut() else {
+            ui.centered_and_justified(|ui| ui.label("Map tiles are unavailable"));
+            return;
+        };
+
+        let segments = self.plot_segments.as_deref().unwrap_or_default();
+        let response = ui.add(
+            Map::new(Some(tiles), &mut self.map_memory, self.map_center)
+                .with_plugin(RouteLayer { segments })
+                .zoom_with_ctrl(false),
+        );
+
+        let attribution_rect = egui::Rect::from_min_size(
+            response.rect.left_bottom() + egui::vec2(8.0, -28.0),
+            Vec2::new(205.0, 20.0),
+        );
+        ui.painter()
+            .rect_filled(attribution_rect, 3.0, Color32::from_black_alpha(185));
+        ui.put(
+            attribution_rect,
+            egui::Hyperlink::from_label_and_url(
+                "© OpenStreetMap contributors",
+                "https://www.openstreetmap.org/copyright",
+            ),
+        );
+
+        if reset_button(ui, response.rect).clicked() {
+            self.reset_plot = true;
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
-    fn open_gpx_picker(&mut self) {
+    fn open_gpx_picker(&mut self, ctx: &Context) {
         let path = rfd::FileDialog::new()
             .add_filter("GPX Files", &["gpx"])
             .set_title("Open GPX File")
             .pick_file();
 
         if let Some(path) = path {
-            self.load_file(path.display().to_string());
+            self.load_file(ctx, path.display().to_string());
         } else {
             // TODO: show a status message that the user canceled the file picker
         }
     }
 
-    fn load_file(&mut self, file_path: String) {
+    fn load_file(&mut self, ctx: &Context, file_path: String) {
         match journey::load_gpx_file(&file_path) {
             Ok(gpx) => {
-                self.load(gpx, None);
+                self.load(ctx, gpx, None);
             }
             Err(_e) => {
                 // TODO: show a status message that the file could not be loaded
@@ -585,10 +677,10 @@ impl App {
         }
     }
 
-    fn load_journey_string(&mut self, journey_string: String) {
+    fn load_journey_string(&mut self, ctx: &Context, journey_string: String) {
         match journey::import(&journey_string) {
             Ok((name, gpx)) => {
-                self.load(gpx, Some(name.clone()));
+                self.load(ctx, gpx, Some(name.clone()));
             }
             Err(_) => {
                 // TODO: show a status message that the string could not be imported
@@ -603,7 +695,7 @@ impl App {
             // Only process .gpx files
             if let Some(ext) = path.extension() {
                 if ext.to_string_lossy().to_lowercase() == "gpx" {
-                    self.load_file(path.to_string_lossy().to_string());
+                    self.load_file(ctx, path.to_string_lossy().to_string());
                 } else {
                     // TODO: show a status message that the file type is not supported
                 }
@@ -628,17 +720,18 @@ fn read_clipboard() -> Option<String> {
     }
 }
 
+#[allow(unused)]
 fn set_clipboard(text: String) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
         if let Ok(mut clipboard) = arboard::Clipboard::new() {
-            return clipboard.set_text(text).is_ok();
+            clipboard.set_text(text).is_ok()
         } else {
-            return false;
+            false
         }
     }
     #[cfg(target_arch = "wasm32")]
-    return false;
+    false
 }
 
 fn qr_to_texture(ctx: &egui::Context, data: &str) -> Option<TextureHandle> {
@@ -689,6 +782,151 @@ fn qr_to_texture(ctx: &egui::Context, data: &str) -> Option<TextureHandle> {
     }
 }
 
+fn openstreetmap_tiles(ctx: &egui::Context) -> HttpTiles {
+    #[cfg(not(target_arch = "wasm32"))]
+    let options = walkers::HttpOptions {
+        user_agent: Some(walkers::HeaderValue::from_static("JourneyView/0.1")),
+        cache: std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .map(|home| home.join(".cache/journeyview/map-tiles")),
+        ..Default::default()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let options = walkers::HttpOptions::default();
+
+    HttpTiles::with_options(OpenStreetMap, options, ctx.clone())
+}
+
+struct RouteLayer<'a> {
+    segments: &'a [JourneySegment],
+}
+
+impl Plugin for RouteLayer<'_> {
+    fn run(
+        self: Box<Self>,
+        ui: &mut Ui,
+        _response: &egui::Response,
+        projector: &Projector,
+        _map_memory: &MapMemory,
+    ) {
+        for segment in self.segments {
+            let points: Vec<egui::Pos2> = segment
+                .points
+                .iter()
+                .filter(|point| point[0].is_finite() && point[1].is_finite())
+                .map(|point| projector.project(lon_lat(point[0], point[1])).to_pos2())
+                .collect();
+
+            if points.len() >= 2 {
+                ui.painter().add(egui::Shape::line(
+                    points.clone(),
+                    Stroke::new(6.0, Color32::from_black_alpha(190)),
+                ));
+                ui.painter().add(egui::Shape::line(
+                    points.clone(),
+                    Stroke::new(3.5, segment.color),
+                ));
+            }
+
+            if let Some(start) = points.first() {
+                ui.painter().circle_filled(*start, 6.0, Color32::WHITE);
+                ui.painter()
+                    .circle_filled(*start, 4.0, Color32::from_rgb(33, 150, 243));
+            }
+            if let Some(end) = points.last() {
+                ui.painter().circle_filled(*end, 6.0, Color32::WHITE);
+                ui.painter()
+                    .circle_filled(*end, 4.0, Color32::from_rgb(244, 67, 54));
+            }
+        }
+    }
+}
+
+fn reset_button(ui: &mut Ui, rect: egui::Rect) -> egui::Response {
+    let btn_size = Vec2::new(56.0, 36.0);
+    let padding = Vec2::new(12.0, 12.0);
+    let btn_rect = egui::Rect::from_min_size(
+        egui::pos2(
+            rect.right() - padding.x - btn_size.x,
+            rect.bottom() - padding.y - btn_size.y,
+        ),
+        btn_size,
+    );
+    ui.put(
+        btn_rect,
+        Button::new(RichText::new("\u{1F504}").size(20.0))
+            .fill(Color32::from_rgb(33, 150, 243))
+            .stroke(Stroke::new(1.5, Color32::BLACK)),
+    )
+    .on_hover_text("Reset view")
+}
+
+fn route_center(segments: &[JourneySegment]) -> Position {
+    route_bounds(segments)
+        .map(|(min_lon, min_lat, max_lon, max_lat)| {
+            lon_lat((min_lon + max_lon) / 2.0, (min_lat + max_lat) / 2.0)
+        })
+        .unwrap_or_else(|| lon_lat(0.0, 0.0))
+}
+
+fn route_bounds(segments: &[JourneySegment]) -> Option<(f64, f64, f64, f64)> {
+    let mut bounds: Option<(f64, f64, f64, f64)> = None;
+    for point in segments.iter().flat_map(|segment| segment.points.iter()) {
+        let [lon, lat] = *point;
+        if !lon.is_finite() || !lat.is_finite() {
+            continue;
+        }
+        bounds = Some(match bounds {
+            Some((min_lon, min_lat, max_lon, max_lat)) => (
+                min_lon.min(lon),
+                min_lat.min(lat),
+                max_lon.max(lon),
+                max_lat.max(lat),
+            ),
+            None => (lon, lat, lon, lat),
+        });
+    }
+    bounds
+}
+
+fn fit_map_to_segments(
+    memory: &mut MapMemory,
+    center: &mut Position,
+    segments: &[JourneySegment],
+    size: Vec2,
+) {
+    let Some((min_lon, min_lat, max_lon, max_lat)) = route_bounds(segments) else {
+        *center = lon_lat(0.0, 0.0);
+        memory.center_at(*center);
+        let _ = memory.set_zoom(1.0);
+        return;
+    };
+
+    *center = route_center(segments);
+    memory.center_at(*center);
+
+    let width = (size.x - 96.0).max(64.0) as f64;
+    let height = (size.y - 96.0).max(64.0) as f64;
+    let x_span = ((max_lon - min_lon).abs() / 360.0).max(f64::EPSILON);
+    let y_span = (mercator_y(max_lat) - mercator_y(min_lat))
+        .abs()
+        .max(f64::EPSILON);
+
+    let zoom_x = (width / (256.0 * x_span)).log2();
+    let zoom_y = (height / (256.0 * y_span)).log2();
+    let zoom = if (max_lon - min_lon).abs() < 1e-9 && (max_lat - min_lat).abs() < 1e-9 {
+        16.0
+    } else {
+        zoom_x.min(zoom_y).clamp(1.0, 18.0)
+    };
+    let _ = memory.set_zoom(zoom);
+}
+
+fn mercator_y(latitude: f64) -> f64 {
+    let latitude = latitude.clamp(-85.051_128_78, 85.051_128_78).to_radians();
+    (1.0 - (latitude.tan() + 1.0 / latitude.cos()).ln() / std::f64::consts::PI) / 2.0
+}
+
 impl eframe::App for App {
     // called automatically every frame
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
@@ -704,9 +942,9 @@ impl eframe::App for App {
         CentralPanel::default().show(ui, |ui| match self.mode {
             Mode::Normal => {
                 if self.show_elevation {
-                    self.map_panel(ui, true);
+                    self.elevation_panel(ui);
                 } else {
-                    self.map_panel(ui, false);
+                    self.map_panel(ui);
                 }
             }
             Mode::Import => self.import_panel(ui),
