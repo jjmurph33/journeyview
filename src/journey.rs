@@ -2,14 +2,13 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use flexpolyline::Polyline;
 use geo_types::Point;
 use gpx::{Gpx, GpxVersion, Link, Track, TrackSegment, Waypoint};
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::BufReader;
 
 //#[derive(Serialize, Deserialize)]
 pub struct Journey {
     name: String,
-    version: String,
+    //version: String,
     polyline: String,
 }
 
@@ -81,12 +80,13 @@ fn encode(name: &str, polyline: &str) -> String {
     let version = 1; // version number: change this if the format changes
     let name = name.replace("|", "-"); // replace any "|" characters in the name
     let data = format!("{}|{}|{}", name, version, polyline);
-    let bytes = data.as_bytes();
-    match zstd::encode_all(bytes, 0) {
+    match zstd::encode_all(data.as_bytes(), 0) {
         Ok(compressed) => return URL_SAFE_NO_PAD.encode(&compressed),
-        Err(e) => eprint!("Error compressing data: {}", e),
+        Err(e) => {
+            eprint!("Error compressing data: {}", e);
+            String::new()
+        }
     }
-    String::new()
 }
 
 pub fn decode(encoded: &str) -> Option<Journey> {
@@ -98,12 +98,18 @@ pub fn decode(encoded: &str) -> Option<Journey> {
                     if parts.len() < 3 {
                         return None;
                     } else {
-                        let journey = Journey {
-                            name: parts[0].to_string(),
-                            version: parts[1].to_string(),
-                            polyline: parts[2].to_string(),
-                        };
-                        return Some(journey);
+                        let version = parts[1].to_string();
+                        if version == "1" {
+                            let journey = Journey {
+                                name: parts[0].to_string(),
+                                //version,
+                                polyline: parts[2].to_string(),
+                            };
+                            return Some(journey);
+                        } else {
+                            eprintln!("Version {} not supported", version);
+                            return None;
+                        }
                     }
                 }
                 Err(e) => eprintln!("Error decoding imported data: {}", e),
@@ -118,13 +124,15 @@ pub fn decode(encoded: &str) -> Option<Journey> {
 pub fn export(name: &str, gpx: &Gpx) -> String {
     let polyline = to_polyline(gpx);
     let journey_string = encode(name, &polyline);
-    if journey_string.len() > 2000 {
-        // too long for a query string
-        //TODO: try to reduce the polyline
-        String::new()
-    } else {
-        journey_string
-    }
+    // a 4000 character polyline worked, may not be reliable though
+    //println!("{}\nlength={}\n", journey_string, journey_string.len());
+    //if journey_string.len() > 2000 {
+    // too long for a query string
+    //TODO: try to reduce the polyline
+    //    String::new()
+    //} else {
+    journey_string
+    //}
 }
 
 pub fn import(journey_string: &str) -> Result<(String, Gpx), String> {

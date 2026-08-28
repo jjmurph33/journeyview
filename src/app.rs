@@ -257,14 +257,27 @@ impl App {
 
     fn import_panel(&mut self, ui: &mut Ui) {
         ui.label("Journey Code:");
-        ScrollArea::vertical().show(ui, |ui| {
-            ui.add(
-                TextEdit::multiline(&mut self.import_buffer)
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(30)
-                    .hint_text(String::from("paste here")),
-            );
-        });
+        let button_row_height = 50.0;
+        let scroll_height =
+            (ui.available_height() - button_row_height - ui.spacing().item_spacing.y).max(0.0);
+        ui.allocate_ui_with_layout(
+            Vec2::new(ui.available_width(), scroll_height),
+            Layout::left_to_right(Align::TOP),
+            |ui| {
+                let text_height = ui.available_height();
+                ScrollArea::vertical()
+                    .min_scrolled_height(text_height)
+                    .max_height(text_height)
+                    .show(ui, |ui| {
+                        ui.add_sized(
+                            Vec2::new(ui.available_width(), text_height),
+                            TextEdit::multiline(&mut self.import_buffer)
+                                .font(FontId::new(18.0, FontFamily::Proportional))
+                                .hint_text(String::from("paste here")),
+                        );
+                    });
+            },
+        );
         ui.horizontal(|ui| {
             if ui
                 .add(
@@ -304,9 +317,10 @@ impl App {
     }
 
     fn export_panel(&mut self, ui: &mut Ui) {
-        let mut size = ui.available_size();
-        size.x *= 0.5;
-        size.y *= 0.9;
+        let button_row_height = 50.0;
+        let content_height =
+            (ui.available_height() - button_row_height - ui.spacing().item_spacing.y).max(0.0);
+        let size = Vec2::new(ui.available_width() * 0.5, content_height);
 
         let mut url = self.url.clone().unwrap_or_default();
 
@@ -315,70 +329,81 @@ impl App {
         }
         let mut export_string = self.export_string.clone(); // temp copy that may include url
 
-        let mut changed = false;
+        let mut changed = false; // need to regenerate qrcode if text changes
 
         ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.spacing();
-                    ui.horizontal(|ui| {
+            ui.allocate_ui_with_layout(
+                Vec2::new(ui.available_width(), content_height),
+                Layout::left_to_right(Align::TOP),
+                |ui| {
+                    ui.allocate_ui_with_layout(size, Layout::top_down(Align::LEFT), |ui| {
                         ui.spacing();
-                        if ui
-                            .checkbox(&mut self.include_url, "Include URL: ")
-                            .changed()
-                        {
-                            changed = true;
-                        }
-                        if ui
-                            .add_enabled(self.include_url, TextEdit::singleline(&mut url))
-                            .changed()
-                        {
-                            self.url.replace(url.to_string());
-                            changed = true;
-                        };
-                        if self.include_url {
-                            let export_url = format!("{}/?j=", url.trim_end_matches("/"));
-                            export_string.insert_str(0, &export_url);
+                        ui.horizontal(|ui| {
+                            ui.spacing();
+                            if ui
+                                .checkbox(&mut self.include_url, "Include URL: ")
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                            if ui
+                                .add_enabled(self.include_url, TextEdit::singleline(&mut url))
+                                .changed()
+                            {
+                                self.url.replace(url.to_string());
+                                changed = true;
+                            };
+                            if self.include_url {
+                                let export_url = format!("{}/?j=", url.trim_end_matches("/"));
+                                export_string.insert_str(0, &export_url);
+                            }
+                        });
+
+                        ui.spacing();
+
+                        let id = egui::Id::new("export_text");
+                        let initialized =
+                            ui.memory(|m| m.data.get_temp::<bool>(id)).unwrap_or(false);
+                        let text_height = ui.available_height();
+                        ScrollArea::vertical()
+                            .min_scrolled_height(text_height)
+                            .max_height(text_height)
+                            .show(ui, |ui| {
+                                ui.add_sized(
+                                    Vec2::new(ui.available_width(), text_height),
+                                    TextEdit::multiline(&mut export_string.as_str())
+                                        .font(FontId::new(18.0, FontFamily::Proportional))
+                                        .id(id),
+                                );
+                            });
+                        // TODO: need a way to reset this after leaving the panel and rentering
+                        // select all of the text when first entering
+                        if !initialized {
+                            let mut state = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+                            state
+                                .cursor
+                                .set_char_range(Some(egui::text::CCursorRange::two(
+                                    egui::text::CCursor::new(0),
+                                    egui::text::CCursor::new(export_string.clone().chars().count()),
+                                )));
+                            state.store(ui.ctx(), id);
+                            ui.memory_mut(|m| {
+                                m.request_focus(id); // give focus to the text area
+                                m.data.insert_temp(id, true); // set initialized flag
+                            });
                         }
                     });
 
-                    ui.spacing();
-
-                    let id = egui::Id::new("export_text");
-                    let initialized = ui.memory(|m| m.data.get_temp::<bool>(id)).unwrap_or(false);
-                    ui.add(
-                        TextEdit::multiline(&mut export_string.as_str())
-                            .font(FontId::new(18.0, FontFamily::Proportional))
-                            .desired_width(size.x)
-                            .desired_rows(20)
-                            .id(id),
-                    );
-                    // select all of the text when first entering
-                    if !initialized {
-                        let mut state = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
-                        state
-                            .cursor
-                            .set_char_range(Some(egui::text::CCursorRange::two(
-                                egui::text::CCursor::new(0),
-                                egui::text::CCursor::new(export_string.clone().chars().count()),
-                            )));
-                        state.store(ui.ctx(), id);
-                        ui.memory_mut(|m| {
-                            m.request_focus(id); // give focus to the text area
-                            m.data.insert_temp(id, true); // set initialized flag
-                        });
+                    if self.qrcode.is_none() || changed {
+                        self.qrcode = qr_to_texture(ui.ctx(), &export_string); // generate the QR code
                     }
-                });
-
-                if self.qrcode.is_none() || changed {
-                    self.qrcode = Some(qr_to_texture(ui.ctx(), &export_string)); // generate the QR code
-                }
-                if let Some(texture) = &self.qrcode {
-                    ui.add_sized(size, Image::new(texture).shrink_to_fit());
-                } else {
-                    ui.add_sized(size, Label::new("Error Generating QRCode"));
-                }
-            });
+                    if let Some(texture) = &self.qrcode {
+                        ui.add_sized(size, Image::new(texture).shrink_to_fit());
+                    } else {
+                        ui.add_sized(size, Label::new("Error Generating QRCode"));
+                    }
+                },
+            );
 
             ui.horizontal(|ui| {
                 #[cfg(not(target_arch = "wasm32"))]
@@ -616,49 +641,52 @@ fn set_clipboard(text: String) -> bool {
     return false;
 }
 
-fn qr_to_texture(ctx: &egui::Context, data: &str) -> TextureHandle {
+fn qr_to_texture(ctx: &egui::Context, data: &str) -> Option<TextureHandle> {
     //println!("length = {}", data.len());
     //println!("{}", &data);
 
-    let code = QrCode::new(data).unwrap();
-    //let code = QrCode::with_error_correction_level(data,qrcode::EcLevel::L).unwrap();
+    if let Ok(code) = QrCode::new(data) {
+        //let code = QrCode::with_error_correction_level(data,qrcode::EcLevel::L).unwrap();
 
-    // Get the raw bool matrix
-    let bits: Vec<Vec<bool>> = code
-        .to_colors()
-        .chunks(code.width())
-        .map(|row| row.iter().map(|c| *c == qrcode::Color::Dark).collect())
-        .collect();
+        // Get the raw bool matrix
+        let bits: Vec<Vec<bool>> = code
+            .to_colors()
+            .chunks(code.width())
+            .map(|row| row.iter().map(|c| *c == qrcode::Color::Dark).collect())
+            .collect();
 
-    let scale = 8usize; // pixels per module
-    let size = bits.len() * scale;
+        let scale = 8usize; // pixels per module
+        let size = bits.len() * scale;
 
-    let mut pixels = vec![egui::Color32::WHITE; size * size];
+        let mut pixels = vec![egui::Color32::WHITE; size * size];
 
-    for (y, row) in bits.iter().enumerate() {
-        for (x, &dark) in row.iter().enumerate() {
-            let color = if dark {
-                egui::Color32::BLACK
-            } else {
-                egui::Color32::WHITE
-            };
-            for dy in 0..scale {
-                for dx in 0..scale {
-                    pixels[(y * scale + dy) * size + (x * scale + dx)] = color;
+        for (y, row) in bits.iter().enumerate() {
+            for (x, &dark) in row.iter().enumerate() {
+                let color = if dark {
+                    egui::Color32::BLACK
+                } else {
+                    egui::Color32::WHITE
+                };
+                for dy in 0..scale {
+                    for dx in 0..scale {
+                        pixels[(y * scale + dy) * size + (x * scale + dx)] = color;
+                    }
                 }
             }
         }
+
+        let image = ColorImage::from_rgba_unmultiplied(
+            [size, size],
+            &pixels
+                .iter()
+                .flat_map(|c| c.to_array())
+                .collect::<Vec<u8>>(),
+        );
+
+        Some(ctx.load_texture("qrcode", image, TextureOptions::NEAREST))
+    } else {
+        None
     }
-
-    let image = ColorImage::from_rgba_unmultiplied(
-        [size, size],
-        &pixels
-            .iter()
-            .flat_map(|c| c.to_array())
-            .collect::<Vec<u8>>(),
-    );
-
-    ctx.load_texture("qrcode", image, TextureOptions::NEAREST)
 }
 
 impl eframe::App for App {

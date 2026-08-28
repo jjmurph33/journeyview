@@ -1,3 +1,10 @@
+// TODO
+// map behind plot
+// name should use filename if gpx name is just a timestamp
+// load file should default to current directory and/or most recent
+// load file on web
+//
+
 mod app;
 mod journey;
 
