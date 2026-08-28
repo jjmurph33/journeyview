@@ -36,19 +36,30 @@ pub fn load_gpx_file(file_path: &str) -> Result<Gpx, String> {
 
 fn to_polyline(gpx: &Gpx) -> String {
     // (lat,lon,elev)
-    let coordinates: Vec<(f64, f64, f64)> = gpx
+    let mut coordinates: Vec<(f64, f64, f64)> = gpx
         .tracks
         .iter()
         .flat_map(|track| track.segments.iter())
         .flat_map(|segment| segment.points.iter())
         .map(|p| (p.point().y(), p.point().x(), p.elevation.unwrap_or(0.0)))
         .collect();
+
+    while coordinates.len() > 500 {
+        // remove every other point to reduce the size of the polyline
+        coordinates = coordinates
+            .iter()
+            .enumerate()
+            .filter_map(|(i, val)| if i % 2 == 0 { Some(*val) } else { None })
+            .collect();
+    }
+
     let polyline = Polyline::Data3d {
         coordinates,
         precision2d: flexpolyline::Precision::Digits5,
         precision3d: flexpolyline::Precision::Digits0,
         type3d: flexpolyline::Type3d::Elevation,
     };
+
     polyline.encode().unwrap_or_default()
 }
 
@@ -123,16 +134,7 @@ pub fn decode(encoded: &str) -> Option<Journey> {
 
 pub fn export(name: &str, gpx: &Gpx) -> String {
     let polyline = to_polyline(gpx);
-    let journey_string = encode(name, &polyline);
-    // a 4000 character polyline worked, may not be reliable though
-    //println!("{}\nlength={}\n", journey_string, journey_string.len());
-    //if journey_string.len() > 2000 {
-    // too long for a query string
-    //TODO: try to reduce the polyline
-    //    String::new()
-    //} else {
-    journey_string
-    //}
+    encode(name, &polyline)
 }
 
 pub fn import(journey_string: &str) -> Result<(String, Gpx), String> {
