@@ -34,6 +34,17 @@ pub fn load_gpx_file(file_path: &str) -> Result<Gpx, String> {
     }
 }
 
+pub fn load_gpx_data(data: &Vec<u8>) -> Result<Gpx, String> {
+    let reader = BufReader::new(data.as_slice());
+    match gpx::read(reader) {
+        Ok(gpx) => {
+            //println!("{:?}", gpx);
+            Ok(gpx)
+        }
+        Err(e) => Err(format!("Failed to parse GPX data: {}", e)),
+    }
+}
+
 fn to_polyline(gpx: &Gpx) -> String {
     // (lat,lon,elev)
     let mut coordinates: Vec<(f64, f64, f64)> = gpx

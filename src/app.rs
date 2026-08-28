@@ -10,7 +10,9 @@ use egui::{
 };
 use egui_plot::{Line, Plot};
 use gpx::Gpx;
+use poll_promise::Promise;
 use qrcode::QrCode;
+use rfd::AsyncFileDialog;
 use walkers::{
     HttpTiles, Map, MapMemory, Plugin, Position, Projector, lon_lat, sources::OpenStreetMap,
 };
@@ -49,6 +51,7 @@ pub struct App {
     map_tiles: Option<HttpTiles>,
     map_memory: MapMemory,
     map_center: Position,
+    file_promise: Option<Promise<Option<Vec<u8>>>>,
 }
 
 impl App {
@@ -220,7 +223,6 @@ impl App {
                     }
                 }
                 ///////////////////// Load button ////////////////////////
-                #[cfg(not(target_arch = "wasm32"))]
                 {
                     ui.add_space(12.0);
                     if ui
@@ -236,7 +238,7 @@ impl App {
                         )
                         .clicked()
                     {
-                        self.open_gpx_picker(ui.ctx());
+                        self.open_gpx_file();
                     }
                 }
                 ///////////////////// Elevation/Map button //////////////////
@@ -304,8 +306,7 @@ impl App {
                 && !self.import_buffer.trim().is_empty()
             {
                 self.load_journey_string(ui.ctx(), self.import_buffer.clone());
-                self.import_buffer.clear();
-                self.mode = Mode::Normal;
+                self.reset_ui();
             }
             if ui
                 .add(
@@ -652,18 +653,54 @@ impl App {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    fn open_gpx_picker(&mut self, ctx: &Context) {
-        let path = rfd::FileDialog::new()
-            .add_filter("GPX Files", &["gpx"])
-            .set_title("Open GPX File")
-            .pick_file();
+    fn open_gpx_file(&mut self) {
+        let (sender, promise) = Promise::new();
 
-        if let Some(path) = path {
-            self.load_file(ctx, path.display().to_string());
-        } else {
-            // TODO: show a status message that the user canceled the file picker
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            std::thread::spawn(move || {
+                let result = pollster::block_on(async {
+                    let file = AsyncFileDialog::new()
+                        .add_filter("GPX files", &["gpx"])
+                        .add_filter("All files", &["*"])
+                        .set_title("Open GPX file")
+                        .pick_file()
+                        .await;
+
+                    match file {
+                        Some(file) => {
+                            let data = file.read().await;
+                            Some(data)
+                        }
+                        None => None,
+                    }
+                });
+                sender.send(result);
+            });
         }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            wasm_bindgen_futures::spawn_local(async move {
+                let file = AsyncFileDialog::new()
+                    .add_filter("GPX files", &["gpx"])
+                    .add_filter("All files", &["*"])
+                    .set_title("Open GPX file")
+                    .pick_file()
+                    .await;
+
+                let result = match file {
+                    Some(file) => {
+                        let data = file.read().await;
+                        Some(data)
+                    }
+                    None => None,
+                };
+                sender.send(result);
+            });
+        }
+
+        self.file_promise = Some(promise);
     }
 
     fn load_file(&mut self, ctx: &Context, file_path: String) {
@@ -695,6 +732,15 @@ impl App {
             // Only process .gpx files
             if let Some(ext) = path.extension() {
                 if ext.to_string_lossy().to_lowercase() == "gpx" {
+                    let filename = path.to_string_lossy().to_string();
+                    match journey::load_gpx_file(&filename) {
+                        Ok(gpx) => {
+                            self.load(ctx, gpx, None);
+                        }
+                        Err(_e) => {
+                            // TODO: show a status message that the file could not be loaded
+                        }
+                    }
                     self.load_file(ctx, path.to_string_lossy().to_string());
                 } else {
                     // TODO: show a status message that the file type is not supported
@@ -953,6 +999,25 @@ impl eframe::App for App {
         });
 
         let ctx = ui.ctx().clone();
+
+        // check on the async file loading dialog
+        if let Some(promise) = &self.file_promise
+            && let Some(result) = promise.ready()
+        {
+            if let Some(data) = result {
+                match journey::load_gpx_data(data) {
+                    Ok(gpx) => {
+                        self.load(&ctx, gpx, None);
+                    }
+                    Err(_e) => {
+                        // TODO: show a status message that the file could not be loaded
+                    }
+                }
+            }
+            self.file_promise = None;
+        }
+
+        // check for any dropped files
         self.handle_dropped_files(&ctx);
     }
 }
