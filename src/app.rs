@@ -103,168 +103,206 @@ impl App {
     }
 
     fn top_panel(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                //////////// Name label ////////////////////////
-                ui.horizontal(|ui| {
-                    if self.name_editing {
-                        if self.name_buffer.is_empty() {
-                            self.name_buffer = self.name.clone();
-                        }
-                        let name_edit_id = egui::Id::new("name_edit"); // need id to manage focus
-                        ui.add(
-                            TextEdit::singleline(&mut self.name_buffer)
-                                .id(name_edit_id)
-                                .font(TextStyle::Heading),
-                        );
-                        if !ui.memory(|m| m.has_focus(name_edit_id)) {
-                            ui.memory_mut(|m| m.request_focus(name_edit_id));
-                        }
+        let compact = ui.available_width() < 720.0;
 
-                        if ui.small_button("Rename").clicked()
-                            || ui.ctx().input(|i| i.key_pressed(Key::Enter))
-                        {
-                            self.name = self.name_buffer.clone();
-                            // clear the export string so it will get rebuilt with the new name
-                            self.export_string.clear();
-                            self.name_editing = false;
-                        }
-                        if ui.small_button("Cancel").clicked()
-                            || ui.ctx().input(|i| i.key_pressed(Key::Escape))
-                        {
-                            self.name_buffer.clear();
-                            self.name_editing = false;
-                        }
-                    } else {
-                        let label_button = ui.add(
-                            Label::new(
-                                RichText::new(self.name.clone())
-                                    .size(28.0)
-                                    .color(Color32::from_rgb(200, 220, 255))
-                                    .strong(),
-                            )
-                            .sense(Sense::click()),
-                        );
-                        if label_button.clicked() {
-                            self.name_editing = true;
-                            self.name_buffer = self.name.clone();
-                        }
-                    }
-                });
-                ///////////////////// Info labels /////////////////////
-                ui.label(
-                    RichText::new(format!("Distance: {:.1}mi", self.distance))
-                        .size(18.0)
-                        .color(Color32::from_rgb(210, 210, 220)),
-                );
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(format!(
-                            "Elevation: {:.0}ft -> {:.0}ft ({:.0}ft change)",
-                            self.min_elevation, self.max_elevation, self.diff_elevation
-                        ))
-                        .size(18.0)
-                        .color(Color32::from_rgb(210, 210, 220)),
-                    );
-                    let button = ui.add(
-                        Button::new(
-                            RichText::new("\u{2139}") // information character ('i' inside a circle)
-                                .size(10.0)
-                                .color(Color32::from_rgb(255, 255, 255)),
-                        )
-                        .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                        .corner_radius(5.0),
-                    );
-                    if button.clicked() {
-                        if self.mode == Mode::Info {
-                            self.mode = Mode::Normal;
-                        } else {
-                            self.mode = Mode::Info;
-                        }
-                    }
+        if compact {
+            self.journey_summary(ui, true);
+            ui.add_space(8.0);
+            self.top_actions(ui, true);
+        } else {
+            ui.horizontal(|ui| {
+                self.journey_summary(ui, false);
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    self.top_actions(ui, false);
                 });
             });
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ///////////////////// Export button ////////////////////////
-                if ui
-                    .add(
-                        Button::new(
-                            RichText::new("Export")
-                                .size(BUTTON_TEXT_SIZE)
-                                .color(Color32::from_rgb(255, 255, 255)),
-                        )
-                        .min_size(Vec2::new(150.0, 50.0))
-                        .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                        .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
-                    )
-                    .clicked()
-                {
-                    self.mode = Mode::Export;
-                }
-                ///////////////////// Import button ////////////////////////
-                if ui
-                    .add(
-                        Button::new(
-                            RichText::new("Import")
-                                .size(BUTTON_TEXT_SIZE)
-                                .color(Color32::from_rgb(255, 255, 255)),
-                        )
-                        .min_size(Vec2::new(150.0, 50.0))
-                        .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                        .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
-                    )
-                    .clicked()
-                {
-                    self.mode = Mode::Import;
-                    if let Some(clipboard_text) = read_clipboard() {
-                        self.import_buffer = clipboard_text;
+        }
+    }
+
+    fn journey_summary(&mut self, ui: &mut Ui, compact: bool) {
+        let compact_scale = if compact {
+            ui.ctx().pixels_per_point().max(1.0)
+        } else {
+            1.0
+        };
+        ui.vertical(|ui| {
+            //////////// Name label ////////////////////////
+            ui.horizontal_wrapped(|ui| {
+                if self.name_editing {
+                    if self.name_buffer.is_empty() {
+                        self.name_buffer = self.name.clone();
+                    }
+                    let name_edit_id = egui::Id::new("name_edit");
+                    let edit_width = if compact {
+                        ui.available_width().max(60.0)
                     } else {
-                        self.import_buffer.clear();
+                        ui.available_width().min(360.0)
+                    };
+                    let edit_height = if compact { 30.0 / compact_scale } else { 30.0 };
+                    let edit = TextEdit::singleline(&mut self.name_buffer).id(name_edit_id);
+                    let edit = if compact {
+                        edit.font(FontId::new(16.0 / compact_scale, FontFamily::Proportional))
+                    } else {
+                        edit.font(TextStyle::Heading)
+                    };
+                    ui.add_sized(Vec2::new(edit_width, edit_height), edit);
+                    if !ui.memory(|m| m.has_focus(name_edit_id)) {
+                        ui.memory_mut(|m| m.request_focus(name_edit_id));
                     }
-                }
-                ///////////////////// Load button ////////////////////////
-                {
-                    ui.add_space(12.0);
-                    if ui
-                        .add(
-                            Button::new(
-                                RichText::new("Load File")
-                                    .size(BUTTON_TEXT_SIZE)
-                                    .color(Color32::from_rgb(255, 255, 255)),
-                            )
-                            .min_size(Vec2::new(150.0, 50.0))
-                            .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                            .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
-                        )
-                        .clicked()
+
+                    if ui.small_button("Rename").clicked()
+                        || ui.ctx().input(|i| i.key_pressed(Key::Enter))
                     {
-                        self.open_gpx_file();
+                        self.name = self.name_buffer.clone();
+                        self.export_string.clear();
+                        self.name_editing = false;
+                    }
+                    if ui.small_button("Cancel").clicked()
+                        || ui.ctx().input(|i| i.key_pressed(Key::Escape))
+                    {
+                        self.name_buffer.clear();
+                        self.name_editing = false;
+                    }
+                } else {
+                    let label_button = ui.add(
+                        Label::new(
+                            RichText::new(self.name.clone())
+                                .size(if compact { 22.0 / compact_scale } else { 28.0 })
+                                .color(Color32::from_rgb(200, 220, 255))
+                                .strong(),
+                        )
+                        .sense(Sense::click())
+                        .wrap(),
+                    );
+                    if label_button.clicked() {
+                        self.name_editing = true;
+                        self.name_buffer = self.name.clone();
                     }
                 }
-                ///////////////////// Elevation/Map button //////////////////
-                ui.add_space(28.0);
-                if ui
-                    .add(
-                        Button::new(
-                            RichText::new(if self.show_elevation {
-                                "Map"
-                            } else {
-                                "Elevation"
-                            })
-                            .size(BUTTON_TEXT_SIZE)
-                            .color(Color32::from_rgb(255, 255, 255)),
-                        )
-                        .min_size(Vec2::new(150.0, 50.0))
-                        .fill(Color32::from_rgb(76, 175, 80)) // Green
-                        .stroke(Stroke::new(1.5, Color32::from_rgb(56, 142, 60))),
+            });
+
+            let stat_size = if compact { 15.0 / compact_scale } else { 18.0 };
+            ui.label(
+                RichText::new(format!("Distance: {:.1}mi", self.distance))
+                    .size(stat_size)
+                    .color(Color32::from_rgb(210, 210, 220)),
+            );
+            ui.horizontal_wrapped(|ui| {
+                let elevation_text = if compact {
+                    format!(
+                        "Elevation: {:.0}-{:.0}ft ({:.0}ft change)",
+                        self.min_elevation, self.max_elevation, self.diff_elevation
                     )
-                    .clicked()
-                {
-                    self.show_elevation = !self.show_elevation;
-                    self.mode = Mode::Normal;
+                } else {
+                    format!(
+                        "Elevation: {:.0}ft -> {:.0}ft ({:.0}ft change)",
+                        self.min_elevation, self.max_elevation, self.diff_elevation
+                    )
+                };
+                ui.label(
+                    RichText::new(elevation_text)
+                        .size(stat_size)
+                        .color(Color32::from_rgb(210, 210, 220)),
+                );
+                let button = ui.add(
+                    Button::new(
+                        RichText::new("\u{2139}")
+                            .size(if compact { 10.0 / compact_scale } else { 10.0 })
+                            .color(Color32::WHITE),
+                    )
+                    .fill(Color32::from_rgb(33, 150, 243))
+                    .corner_radius(5.0),
+                );
+                if button.clicked() {
+                    self.mode = if self.mode == Mode::Info {
+                        Mode::Normal
+                    } else {
+                        Mode::Info
+                    };
                 }
             });
         });
+    }
+
+    fn top_actions(&mut self, ui: &mut Ui, compact: bool) {
+        let compact_scale = ui.ctx().pixels_per_point().max(1.0);
+        let button_width = if compact {
+            130.0 / compact_scale
+        } else {
+            150.0
+        };
+        let button_height = if compact { 44.0 / compact_scale } else { 50.0 };
+        let text_size = if compact {
+            14.0 / compact_scale
+        } else {
+            BUTTON_TEXT_SIZE
+        };
+
+        let render_buttons = |ui: &mut Ui, app: &mut Self| {
+            if top_action_button(
+                ui,
+                "Export",
+                button_width,
+                button_height,
+                text_size,
+                Color32::from_rgb(33, 150, 243),
+                Color32::from_rgb(21, 101, 192),
+            ) {
+                app.mode = Mode::Export;
+            }
+
+            if top_action_button(
+                ui,
+                "Import",
+                button_width,
+                button_height,
+                text_size,
+                Color32::from_rgb(33, 150, 243),
+                Color32::from_rgb(21, 101, 192),
+            ) {
+                app.mode = Mode::Import;
+                if let Some(clipboard_text) = read_clipboard() {
+                    app.import_buffer = clipboard_text;
+                } else {
+                    app.import_buffer.clear();
+                }
+            }
+
+            if top_action_button(
+                ui,
+                "Load File",
+                button_width,
+                button_height,
+                text_size,
+                Color32::from_rgb(33, 150, 243),
+                Color32::from_rgb(21, 101, 192),
+            ) {
+                app.open_gpx_file();
+            }
+
+            if top_action_button(
+                ui,
+                if app.show_elevation {
+                    "Map"
+                } else {
+                    "Elevation"
+                },
+                button_width,
+                button_height,
+                text_size,
+                Color32::from_rgb(76, 175, 80),
+                Color32::from_rgb(56, 142, 60),
+            ) {
+                app.show_elevation = !app.show_elevation;
+                app.mode = Mode::Normal;
+            }
+        };
+
+        if compact {
+            ui.horizontal_wrapped(|ui| render_buttons(ui, self));
+        } else {
+            render_buttons(ui, self);
+        }
     }
 
     fn import_panel(&mut self, ui: &mut Ui) {
@@ -750,6 +788,24 @@ impl App {
             }
         }
     }
+}
+
+fn top_action_button(
+    ui: &mut Ui,
+    label: &str,
+    width: f32,
+    height: f32,
+    text_size: f32,
+    fill: Color32,
+    border: Color32,
+) -> bool {
+    ui.add_sized(
+        Vec2::new(width, height),
+        Button::new(RichText::new(label).size(text_size).color(Color32::WHITE))
+            .fill(fill)
+            .stroke(Stroke::new(1.5, border)),
+    )
+    .clicked()
 }
 
 fn read_clipboard() -> Option<String> {
