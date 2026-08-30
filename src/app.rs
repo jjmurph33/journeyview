@@ -5,8 +5,8 @@ use crate::journey::{
 use eframe::egui;
 use egui::{
     Align, Button, CentralPanel, CollapsingHeader, Color32, ColorImage, Context, FontFamily,
-    FontId, Frame, Image, Key, Label, Layout, Margin, Panel, RichText, ScrollArea, Stroke,
-    TextEdit, TextureHandle, TextureOptions, Ui, Vec2,
+    FontId, Frame, Image, Key, Label, Layout, Margin, Panel, RichText, ScrollArea, Sense, Stroke,
+    TextEdit, TextStyle, TextureHandle, TextureOptions, Ui, Vec2,
 };
 use egui_plot::{Line, Plot};
 use gpx::Gpx;
@@ -111,10 +111,31 @@ impl App {
     fn top_panel(&mut self, ui: &mut Ui) {
         let compact = ui.available_width() < COMPACT_WIDTH;
 
-        self.journey_summary(ui, compact);
-        ui.add_space(8.0);
-        self.top_actions(ui, compact);
+        if compact {
+            let actions_width = 180.0_f32.min(ui.available_width() * 0.52);
+            let summary_width =
+                (ui.available_width() - actions_width - ui.spacing().item_spacing.x).max(0.0);
 
+            ui.horizontal_top(|ui| {
+                ui.allocate_ui_with_layout(
+                    Vec2::new(summary_width, 0.0),
+                    Layout::top_down(Align::LEFT),
+                    |ui| self.journey_summary(ui, true),
+                );
+                ui.allocate_ui_with_layout(
+                    Vec2::new(actions_width, 0.0),
+                    Layout::top_down(Align::Center),
+                    |ui| self.top_actions(ui, true),
+                );
+            });
+        } else {
+            ui.horizontal(|ui| {
+                self.journey_summary(ui, false);
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    self.top_actions(ui, false);
+                });
+            });
+        }
         if let Some(error) = &self.error_message {
             ui.add_space(4.0);
             ui.label(RichText::new(error).color(Color32::from_rgb(255, 120, 120)));
@@ -122,101 +143,108 @@ impl App {
     }
 
     fn journey_summary(&mut self, ui: &mut Ui, compact: bool) {
-        let save = self.name_editing && (ui.ctx().input(|i| i.key_pressed(Key::Enter)));
-        let cancel = self.name_editing && (ui.ctx().input(|i| i.key_pressed(Key::Escape)));
-
-        ui.with_layout(Layout::right_to_left(Align::TOP), |ui| {
-            let mut save = save;
-            let mut cancel = cancel;
-            if self.name_editing {
-                cancel |= ui.small_button("Cancel").clicked();
-                save |= ui.small_button("Save").clicked();
-            } else if ui.small_button("Rename").clicked() {
-                self.name_editing = true;
-                self.name_buffer = self.name.clone();
-            }
-
-            ui.allocate_ui_with_layout(
-                Vec2::new(ui.available_width(), 0.0),
-                Layout::top_down(Align::LEFT),
-                |ui| {
-                    if self.name_editing {
-                        if self.name_buffer.is_empty() {
-                            self.name_buffer = self.name.clone();
-                        }
-                        let name_edit_id = egui::Id::new("name_edit");
-                        let edit = TextEdit::singleline(&mut self.name_buffer)
-                            .id(name_edit_id)
-                            .font(if compact {
-                                FontId::new(16.0, FontFamily::Proportional)
-                            } else {
-                                FontId::new(22.0, FontFamily::Proportional)
-                            });
-                        ui.add_sized(Vec2::new(ui.available_width(), 30.0), edit);
-                        if !ui.memory(|m| m.has_focus(name_edit_id)) {
-                            ui.memory_mut(|m| m.request_focus(name_edit_id));
-                        }
-                    } else {
-                        ui.add(
-                            Label::new(
-                                RichText::new(self.name.clone())
-                                    .size(if compact { 22.0 } else { 28.0 })
-                                    .color(Color32::from_rgb(200, 220, 255))
-                                    .strong(),
-                            )
-                            .wrap(),
-                        );
+        ui.vertical(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                if self.name_editing {
+                    if self.name_buffer.is_empty() {
+                        self.name_buffer = self.name.clone();
                     }
-                },
-            );
+                    let name_edit_id = egui::Id::new("name_edit");
+                    let edit_width = if compact {
+                        ui.available_width().max(60.0)
+                    } else {
+                        ui.available_width().min(360.0)
+                    };
+                    let edit_height = 30.0;
+                    let edit = TextEdit::singleline(&mut self.name_buffer).id(name_edit_id);
+                    let edit = if compact {
+                        edit.font(FontId::new(16.0, FontFamily::Proportional))
+                    } else {
+                        edit.font(TextStyle::Heading)
+                    };
+                    ui.add_sized(Vec2::new(edit_width, edit_height), edit);
+                    if !ui.memory(|m| m.has_focus(name_edit_id)) {
+                        ui.memory_mut(|m| m.request_focus(name_edit_id));
+                    }
 
-            if save {
-                self.name = self.name_buffer.clone();
-                self.export_string.clear();
-                self.name_editing = false;
-            } else if cancel {
-                self.name_buffer.clear();
-                self.name_editing = false;
-            }
-        });
+                    if ui.small_button("Rename").clicked()
+                        || ui.ctx().input(|i| i.key_pressed(Key::Enter))
+                    {
+                        self.name = self.name_buffer.clone();
+                        self.export_string.clear();
+                        self.name_editing = false;
+                    }
+                    if ui.small_button("Cancel").clicked()
+                        || ui.ctx().input(|i| i.key_pressed(Key::Escape))
+                    {
+                        self.name_buffer.clear();
+                        self.name_editing = false;
+                    }
+                } else {
+                    let label_button = ui.add(
+                        Label::new(
+                            RichText::new(self.name.clone())
+                                .size(if compact { 22.0 } else { 28.0 })
+                                .color(Color32::from_rgb(200, 220, 255))
+                                .strong(),
+                        )
+                        .sense(Sense::click())
+                        .wrap(),
+                    );
+                    if label_button.clicked() {
+                        self.name_editing = true;
+                        self.name_buffer = self.name.clone();
+                    }
+                }
+            });
 
-        let stat_size = if compact { 15.0 } else { 18.0 };
-        ui.horizontal(|ui| {
+            let stat_size = if compact { 15.0 } else { 18.0 };
             ui.label(
                 RichText::new(format!("Distance: {:.1}mi", self.distance))
                     .size(stat_size)
                     .color(Color32::from_rgb(210, 210, 220)),
             );
-            let button = ui.add(
-                Button::new(RichText::new("\u{2139}").size(10.0).color(Color32::WHITE))
-                    .fill(Color32::from_rgb(33, 150, 243))
-                    .corner_radius(5.0),
-            );
-            if button.clicked() {
-                self.mode = if self.mode == Mode::Info {
-                    Mode::Normal
+            ui.horizontal_wrapped(|ui| {
+                let elevation_text = if compact {
+                    format!(
+                        "Elevation: {:.0}-{:.0}ft ({:.0}ft change)",
+                        self.min_elevation, self.max_elevation, self.diff_elevation
+                    )
                 } else {
-                    Mode::Info
+                    format!(
+                        "Elevation: {:.0}ft -> {:.0}ft ({:.0}ft change)",
+                        self.min_elevation, self.max_elevation, self.diff_elevation
+                    )
                 };
-            }
+                ui.label(
+                    RichText::new(elevation_text)
+                        .size(stat_size)
+                        .color(Color32::from_rgb(210, 210, 220)),
+                );
+                let button = ui.add(
+                    Button::new(RichText::new("\u{2139}").size(10.0).color(Color32::WHITE))
+                        .fill(Color32::from_rgb(33, 150, 243))
+                        .corner_radius(5.0),
+                );
+                if button.clicked() {
+                    self.mode = if self.mode == Mode::Info {
+                        Mode::Normal
+                    } else {
+                        Mode::Info
+                    };
+                }
+            });
         });
     }
 
     fn top_actions(&mut self, ui: &mut Ui, compact: bool) {
-        let spacing = ui.spacing().item_spacing.x * 3.0;
         let button_width = if compact {
-            ((ui.available_width() - spacing) / 4.0).max(0.0)
+            (ui.available_width() - ui.spacing().item_spacing.x) * 0.5
         } else {
             150.0
         };
         let button_height = if compact { 44.0 } else { 50.0 };
-        let text_size = if compact && button_width < 90.0 {
-            12.0
-        } else if compact {
-            14.0
-        } else {
-            BUTTON_TEXT_SIZE
-        };
+        let text_size = if compact { 14.0 } else { BUTTON_TEXT_SIZE };
 
         let render_buttons = |ui: &mut Ui, app: &mut Self, order: [u8; 4]| {
             for action in order {
@@ -288,9 +316,11 @@ impl App {
             }
         };
 
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            render_buttons(ui, self, [3, 2, 1, 0]);
-        });
+        if compact {
+            ui.horizontal_wrapped(|ui| render_buttons(ui, self, [0, 1, 2, 3]));
+        } else {
+            render_buttons(ui, self, [0, 1, 2, 3]);
+        }
     }
 
     fn import_panel(&mut self, ui: &mut Ui) {
@@ -555,15 +585,6 @@ impl App {
                 Layout::top_down(Align::LEFT),
                 |ui| {
                     ui.label("GPX Info");
-                    ui.label(
-                        RichText::new(format!(
-                            "Elevation: {:.0}ft to {:.0}ft ({:.0}ft change)",
-                            self.min_elevation, self.max_elevation, self.diff_elevation
-                        ))
-                        .size(18.0)
-                        .color(Color32::from_rgb(210, 210, 220)),
-                    );
-                    ui.add_space(6.0);
                     let text_height = ui.available_height();
                     ScrollArea::vertical()
                         .min_scrolled_height(text_height)
