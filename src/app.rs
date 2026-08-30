@@ -52,7 +52,8 @@ pub struct App {
     map_tiles: Option<HttpTiles>,
     map_memory: MapMemory,
     map_center: Position,
-    file_promise: Option<Promise<Option<Vec<u8>>>>,
+    file_promise: Option<Promise<Result<Option<Vec<u8>>, String>>>,
+    error_message: Option<String>,
 }
 
 impl App {
@@ -82,6 +83,7 @@ impl App {
     }
 
     fn load(&mut self, ctx: &Context, gpx: Gpx, name: Option<String>) {
+        self.error_message = None;
         self.gpx = gpx;
         self.name = if let Some(name) = name {
             name
@@ -120,6 +122,10 @@ impl App {
                 });
             });
         }
+        if let Some(error) = &self.error_message {
+            ui.add_space(4.0);
+            ui.label(RichText::new(error).color(Color32::from_rgb(255, 120, 120)));
+        }
     }
 
     fn journey_summary(&mut self, ui: &mut Ui, compact: bool) {
@@ -129,7 +135,6 @@ impl App {
             1.0
         };
         ui.vertical(|ui| {
-            //////////// Name label ////////////////////////
             ui.horizontal_wrapped(|ui| {
                 if self.name_editing {
                     if self.name_buffer.is_empty() {
@@ -728,6 +733,11 @@ impl App {
     }
 
     fn open_gpx_file(&mut self) {
+        if self.file_promise.is_some() {
+            self.error_message = Some("A GPX file is already loading".to_string());
+            return;
+        }
+        self.error_message = None;
         let (sender, promise) = Promise::new();
         log::info!("Opening GPX file picker");
 
@@ -742,21 +752,18 @@ impl App {
                         .pick_file()
                         .await;
 
-                    match file {
-                        Some(file) => {
-                            let data = file.read().await;
-                            log::info!(
-                                "Selected GPX file '{}' ({} bytes)",
-                                file.file_name(),
-                                data.len()
-                            );
-                            Some(data)
-                        }
-                        None => {
-                            log::warn!("GPX file picker cancelled");
-                            None
-                        }
-                    }
+                    let Some(file) = file else {
+                        log::warn!("GPX file picker cancelled");
+                        return Ok(None);
+                    };
+                    let path = file.path().to_string_lossy().to_string();
+                    let data = journey::read_gpx_file_data(&path)?;
+                    log::info!(
+                        "Selected GPX file '{}' ({} bytes)",
+                        file.file_name(),
+                        data.len()
+                    );
+                    Ok(Some(data))
                 });
                 sender.send(result);
             });
@@ -765,28 +772,33 @@ impl App {
         #[cfg(target_arch = "wasm32")]
         {
             wasm_bindgen_futures::spawn_local(async move {
-                let file = AsyncFileDialog::new()
-                    .add_filter("GPX files", &["gpx"])
-                    .add_filter("All files", &["*"])
-                    .set_title("Open GPX file")
-                    .pick_file()
-                    .await;
+                let result = async {
+                    let file = AsyncFileDialog::new()
+                        .add_filter("GPX files", &["gpx"])
+                        .add_filter("All files", &["*"])
+                        .set_title("Open GPX file")
+                        .pick_file()
+                        .await;
 
-                let result = match file {
-                    Some(file) => {
-                        let data = file.read().await;
-                        log::info!(
-                            "Selected GPX file '{}' ({} bytes)",
-                            file.file_name(),
-                            data.len()
-                        );
-                        Some(data)
-                    }
-                    None => {
+                    let Some(file) = file else {
                         log::warn!("GPX file picker cancelled");
-                        None
+                        return Ok(None);
+                    };
+                    if file.inner().size() > journey::MAX_GPX_FILE_BYTES as f64 {
+                        return Err(format!(
+                            "GPX file is too large (maximum {} MB)",
+                            journey::MAX_GPX_FILE_BYTES / (1024 * 1024)
+                        ));
                     }
-                };
+                    let data = read_web_file(file.inner()).await?;
+                    log::info!(
+                        "Selected GPX file '{}' ({} bytes)",
+                        file.file_name(),
+                        data.len()
+                    );
+                    Ok(Some(data))
+                }
+                .await;
                 sender.send(result);
             });
         }
@@ -794,14 +806,16 @@ impl App {
         self.file_promise = Some(promise);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn load_file(&mut self, ctx: &Context, file_path: String) {
         match journey::load_gpx_file(&file_path) {
             Ok(gpx) => {
                 log::info!("Loaded GPX file '{}'", file_path);
                 self.load(ctx, gpx, None);
             }
-            Err(e) => {
-                log::error!("Failed to load GPX file '{}': {}", file_path, e);
+            Err(error) => {
+                log::error!("Failed to load GPX file '{}': {}", file_path, error);
+                self.error_message = Some(error);
             }
         }
     }
@@ -815,39 +829,85 @@ impl App {
         match journey::import(&journey_string) {
             Ok((name, gpx)) => {
                 log::info!("Decoded journey '{}' and preparing to load it", name);
-                self.load(ctx, gpx, Some(name.clone()));
+                self.load(ctx, gpx, Some(name));
             }
-            Err(e) => {
-                log::error!("Failed to import journey string: {}", e);
+            Err(error) => {
+                log::error!("Failed to import journey string: {}", error);
+                self.error_message = Some(error);
             }
         }
     }
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
+        if !dropped_files.is_empty() && self.file_promise.is_some() {
+            self.error_message = Some("A GPX file is already loading".to_string());
+            return;
+        }
+        if dropped_files.len() > 1 {
+            self.error_message = Some("Please drop one GPX file at a time".to_string());
+            return;
+        }
         for file in dropped_files {
             let path = file.path();
-            if let Some(ext) = path.extension() {
-                if ext.to_string_lossy().to_lowercase() == "gpx" {
-                    let filename = path.to_string_lossy().to_string();
-                    log::info!("Dropped GPX file: {}", filename);
-                    match journey::load_gpx_file(&filename) {
-                        Ok(gpx) => {
-                            self.load(ctx, gpx, None);
-                        }
-                        Err(e) => {
-                            log::error!("Failed to load dropped GPX file '{}': {}", filename, e);
-                        }
-                    }
-                    self.load_file(ctx, path.to_string_lossy().to_string());
-                } else {
-                    log::warn!("Unsupported dropped file type: {}", path.display());
+            if path
+                .extension()
+                .is_none_or(|ext| ext.to_string_lossy().to_lowercase() != "gpx")
+            {
+                self.error_message = Some("Only GPX files are supported".to_string());
+                continue;
+            }
+
+            let filename = path.to_string_lossy().to_string();
+            log::info!("Dropped GPX file: {}", filename);
+
+            #[cfg(not(target_arch = "wasm32"))]
+            self.load_file(ctx, filename);
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let Some(web_file) = file.web_file().cloned() else {
+                    self.error_message = Some("Unable to access dropped GPX file".to_string());
+                    continue;
+                };
+                if web_file.size() > journey::MAX_GPX_FILE_BYTES as f64 {
+                    self.error_message = Some(format!(
+                        "GPX file is too large (maximum {} MB)",
+                        journey::MAX_GPX_FILE_BYTES / (1024 * 1024)
+                    ));
+                    continue;
                 }
-            } else {
-                log::warn!("Dropped file has no extension: {}", path.display());
+
+                let (sender, promise) = Promise::new();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let result = read_web_file(&web_file).await.map(Some);
+                    sender.send(result);
+                });
+                self.file_promise = Some(promise);
             }
         }
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn read_web_file(file: &web_sys::File) -> Result<Vec<u8>, String> {
+    if file.size() > journey::MAX_GPX_FILE_BYTES as f64 {
+        return Err(format!(
+            "GPX file is too large (maximum {} MB)",
+            journey::MAX_GPX_FILE_BYTES / (1024 * 1024)
+        ));
+    }
+    let buffer = wasm_bindgen_futures::JsFuture::from(file.array_buffer())
+        .await
+        .map_err(|_| "Failed to read GPX file".to_string())?;
+    let data = js_sys::Uint8Array::new(&buffer).to_vec();
+    if data.len() > journey::MAX_GPX_FILE_BYTES {
+        return Err(format!(
+            "GPX file is too large (maximum {} MB)",
+            journey::MAX_GPX_FILE_BYTES / (1024 * 1024)
+        ));
+    }
+    Ok(data)
 }
 
 fn top_action_button(
@@ -1109,14 +1169,18 @@ impl eframe::App for App {
         if let Some(promise) = &self.file_promise
             && let Some(result) = promise.ready()
         {
-            if let Some(data) = result {
-                match journey::load_gpx_data(data) {
-                    Ok(gpx) => {
-                        self.load(&ctx, gpx, None);
+            match result {
+                Ok(Some(data)) => match journey::load_gpx_data(data) {
+                    Ok(gpx) => self.load(&ctx, gpx, None),
+                    Err(error) => {
+                        log::error!("Failed to load GPX file: {}", error);
+                        self.error_message = Some(error);
                     }
-                    Err(e) => {
-                        log::error!("Failed to load GPX file: {}", e);
-                    }
+                },
+                Ok(None) => {}
+                Err(error) => {
+                    log::error!("Failed to read GPX file: {}", error);
+                    self.error_message = Some(error.clone());
                 }
             }
             self.file_promise = None;

@@ -2,10 +2,26 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use flexpolyline::Polyline;
 use geo_types::Point;
 use gpx::{Gpx, GpxVersion, Link, Track, TrackSegment, Waypoint};
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
-use std::io::BufReader;
+use std::io::{BufReader, Cursor, Read};
+
+pub const MAX_GPX_FILE_BYTES: usize = 10 * 1024 * 1024;
+const MAX_JOURNEY_ENCODED_BYTES: usize = 64 * 1024;
+const MAX_JOURNEY_COMPRESSED_BYTES: usize = 48 * 1024;
+const MAX_JOURNEY_DECOMPRESSED_BYTES: usize = 256 * 1024;
+const MAX_GPX_TRACKS: usize = 256;
+const MAX_GPX_ROUTES: usize = 256;
+const MAX_GPX_SEGMENTS: usize = 2_000;
+const MAX_GPX_POINTS: usize = 100_000;
+const MAX_GPX_LINKS: usize = 10_000;
+const MAX_GPX_METADATA_BYTES: usize = 256 * 1024;
+const MAX_GPX_XML_DEPTH: usize = 64;
+const MAX_GPX_XML_ELEMENTS: usize = 400_000;
+const MAX_GPX_UNKNOWN_ELEMENTS: usize = 10_000;
 
 //#[derive(Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Journey {
     name: String,
     //version: String,
@@ -18,31 +34,41 @@ pub struct JourneySegment {
     pub color: egui::Color32,
 }
 
-pub fn load_gpx_file(file_path: &str) -> Result<Gpx, String> {
-    match fs::File::open(file_path) {
-        Ok(file) => {
-            let reader = BufReader::new(file);
-            match gpx::read(reader) {
-                Ok(gpx) => {
-                    //println!("{:?}", gpx);
-                    Ok(gpx)
-                }
-                Err(e) => Err(format!("Failed to parse GPX file: {}", e)),
-            }
-        }
-        Err(e) => Err(format!("Failed to open file: {}", e)),
+#[cfg(not(target_arch = "wasm32"))]
+pub fn read_gpx_file_data(file_path: &str) -> Result<Vec<u8>, String> {
+    let file = fs::File::open(file_path).map_err(|e| format!("Failed to open file: {e}"))?;
+    let mut data = Vec::new();
+    file.take(MAX_GPX_FILE_BYTES as u64 + 1)
+        .read_to_end(&mut data)
+        .map_err(|e| format!("Failed to read GPX file: {e}"))?;
+    if data.len() > MAX_GPX_FILE_BYTES {
+        return Err(format!(
+            "GPX file is too large (maximum {} MB)",
+            MAX_GPX_FILE_BYTES / (1024 * 1024)
+        ));
     }
+    Ok(data)
 }
 
-pub fn load_gpx_data(data: &Vec<u8>) -> Result<Gpx, String> {
-    let reader = BufReader::new(data.as_slice());
-    match gpx::read(reader) {
-        Ok(gpx) => {
-            //println!("{:?}", gpx);
-            Ok(gpx)
-        }
-        Err(e) => Err(format!("Failed to parse GPX data: {}", e)),
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_gpx_file(file_path: &str) -> Result<Gpx, String> {
+    let data = read_gpx_file_data(file_path)?;
+    load_gpx_data(&data)
+}
+
+pub fn load_gpx_data(data: &[u8]) -> Result<Gpx, String> {
+    if data.len() > MAX_GPX_FILE_BYTES {
+        return Err(format!(
+            "GPX file is too large (maximum {} MB)",
+            MAX_GPX_FILE_BYTES / (1024 * 1024)
+        ));
     }
+
+    preflight_gpx(Cursor::new(data))?;
+    let gpx =
+        gpx::read(BufReader::new(data)).map_err(|e| format!("Failed to parse GPX data: {e}"))?;
+    validate_gpx(&gpx)?;
+    Ok(gpx)
 }
 
 fn to_polyline(gpx: &Gpx) -> String {
@@ -74,27 +100,104 @@ fn to_polyline(gpx: &Gpx) -> String {
     polyline.encode().unwrap_or_default()
 }
 
-fn from_polyline(polyline: &str) -> Gpx {
+fn validate_polyline_encoding(polyline: &str) -> Result<(), String> {
+    let mut bytes = polyline.bytes().peekable();
+    let version = decode_polyline_unsigned(&mut bytes)?;
+    if version != 1 {
+        return Err("Unsupported journey polyline version".to_string());
+    }
+    let header = decode_polyline_unsigned(&mut bytes)?;
+    if header >= (1_u64 << 11) {
+        return Err("Invalid journey polyline header".to_string());
+    }
+
+    let dimensions = if ((header >> 4) & 7) == 0 { 2 } else { 3 };
+    let mut coordinates = [0_i64; 3];
+    let mut point_count = 0usize;
+    while bytes.peek().is_some() {
+        for coordinate in coordinates.iter_mut().take(dimensions) {
+            let delta = decode_polyline_signed(&mut bytes)?;
+            *coordinate = coordinate
+                .checked_add(delta)
+                .ok_or_else(|| "Journey polyline coordinate overflow".to_string())?;
+        }
+        point_count += 1;
+        if point_count > MAX_GPX_POINTS {
+            return Err(format!(
+                "Journey contains too many points (maximum {MAX_GPX_POINTS})"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn decode_polyline_signed<I: Iterator<Item = u8>>(bytes: &mut I) -> Result<i64, String> {
+    let mut value = decode_polyline_unsigned(bytes)?;
+    let negative = value & 1 != 0;
+    value >>= 1;
+    if negative {
+        value = !value;
+    }
+    Ok(value as i64)
+}
+
+fn decode_polyline_unsigned<I: Iterator<Item = u8>>(bytes: &mut I) -> Result<u64, String> {
+    let mut result = 0_u64;
+    let mut shift = 0_u32;
+    for byte in bytes {
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'-' => 62,
+            b'_' => 63,
+            _ => return Err("Invalid journey polyline character".to_string()),
+        } as u64;
+
+        result |= (value & 0x1f) << shift;
+        if value & 0x20 == 0 {
+            return Ok(result);
+        }
+        shift += 5;
+        if shift >= 64 {
+            return Err("Invalid journey polyline integer".to_string());
+        }
+    }
+    Err("Truncated journey polyline integer".to_string())
+}
+
+fn from_polyline(polyline: &str) -> Result<Gpx, String> {
+    validate_polyline_encoding(polyline)?;
+    let decoded =
+        Polyline::decode(polyline).map_err(|e| format!("Invalid journey polyline: {e}"))?;
+    let Polyline::Data3d { coordinates, .. } = decoded else {
+        return Err("Journey polyline does not contain elevation data".to_string());
+    };
+    if coordinates.len() > MAX_GPX_POINTS {
+        return Err(format!(
+            "Journey contains too many points (maximum {MAX_GPX_POINTS})"
+        ));
+    }
+
+    let mut segment = TrackSegment::new();
+    segment.points = coordinates
+        .iter()
+        .map(|c| {
+            let mut waypoint = Waypoint::new(Point::new(c.1, c.0));
+            waypoint.elevation = Some(c.2);
+            waypoint
+        })
+        .collect();
+    let mut track = Track::new();
+    track.segments.push(segment);
+
     let mut gpx = Gpx {
         version: GpxVersion::Gpx11,
         ..Default::default()
     };
-    let decoded = Polyline::decode(polyline).unwrap();
-    if let Polyline::Data3d { coordinates, .. } = decoded {
-        let mut segment = TrackSegment::new();
-        segment.points = coordinates
-            .iter()
-            .map(|c| {
-                let mut waypoint = Waypoint::new(Point::new(c.1, c.0));
-                waypoint.elevation = Some(c.2);
-                waypoint
-            })
-            .collect();
-        let mut track = Track::new();
-        track.segments.push(segment);
-        gpx.tracks.push(track);
-    };
-    gpx
+    gpx.tracks.push(track);
+    validate_gpx(&gpx)?;
+    Ok(gpx)
 }
 
 fn encode(name: &str, polyline: &str) -> String {
@@ -102,7 +205,7 @@ fn encode(name: &str, polyline: &str) -> String {
     let version = 1; // version number: change this if the format changes
     let name = name.replace("|", "-"); // replace any "|" characters in the name
     let data = format!("{}|{}|{}", name, version, polyline);
-    match zstd::encode_all(data.as_bytes(), 0) {
+    match zstd::bulk::compress(data.as_bytes(), 0) {
         Ok(compressed) => URL_SAFE_NO_PAD.encode(&compressed),
         Err(e) => {
             log::error!("Error compressing data: {}", e);
@@ -111,36 +214,58 @@ fn encode(name: &str, polyline: &str) -> String {
     }
 }
 
-pub fn decode(encoded: &str) -> Option<Journey> {
-    match URL_SAFE_NO_PAD.decode(encoded) {
-        Ok(bytes) => match zstd::decode_all(bytes.as_slice()) {
-            Ok(decompressed) => match String::from_utf8(decompressed) {
-                Ok(decoded) => {
-                    let parts: Vec<&str> = decoded.split("|").collect();
-                    if parts.len() < 3 {
-                        return None;
-                    } else {
-                        let version = parts[1].to_string();
-                        if version == "1" {
-                            let journey = Journey {
-                                name: parts[0].to_string(),
-                                //version,
-                                polyline: parts[2].to_string(),
-                            };
-                            return Some(journey);
-                        } else {
-                            log::warn!("Version {} not supported", version);
-                            return None;
-                        }
-                    }
-                }
-                Err(e) => log::error!("Error decoding imported data: {}", e),
-            },
-            Err(e) => log::error!("Error decompressing imported data: {}", e),
-        },
-        Err(e) => log::error!("Error reading imported data: {}", e),
+pub fn decode(encoded: &str) -> Result<Journey, String> {
+    if encoded.len() > MAX_JOURNEY_ENCODED_BYTES {
+        return Err(format!(
+            "Journey code is too large (maximum {MAX_JOURNEY_ENCODED_BYTES} bytes)"
+        ));
     }
-    None
+
+    let bytes = URL_SAFE_NO_PAD
+        .decode(encoded)
+        .map_err(|e| format!("Invalid journey encoding: {e}"))?;
+    if bytes.len() > MAX_JOURNEY_COMPRESSED_BYTES {
+        return Err("Compressed journey is too large".to_string());
+    }
+
+    let mut decompressor = zstd::bulk::Decompressor::new()
+        .map_err(|e| format!("Failed to initialize journey decompressor: {e}"))?;
+    let decompressed = decompressor
+        .decompress(&bytes, MAX_JOURNEY_DECOMPRESSED_BYTES)
+        .map_err(|e| {
+            if e.to_string().contains("Destination buffer is too small") {
+                format!(
+                    "Decompressed journey is too large (maximum {MAX_JOURNEY_DECOMPRESSED_BYTES} bytes)"
+                )
+            } else {
+                format!("Failed to decompress journey: {e}")
+            }
+        })?;
+
+    let decoded =
+        String::from_utf8(decompressed).map_err(|e| format!("Journey is not valid UTF-8: {e}"))?;
+    let mut parts = decoded.splitn(3, '|');
+    let name = parts
+        .next()
+        .ok_or_else(|| "Journey name is missing".to_string())?;
+    let version = parts
+        .next()
+        .ok_or_else(|| "Journey version is missing".to_string())?;
+    let polyline = parts
+        .next()
+        .ok_or_else(|| "Journey polyline is missing".to_string())?;
+
+    if version != "1" {
+        return Err(format!("Journey version {version} is not supported"));
+    }
+    if name.len() > MAX_GPX_METADATA_BYTES {
+        return Err("Journey name is too large".to_string());
+    }
+
+    Ok(Journey {
+        name: name.to_string(),
+        polyline: polyline.to_string(),
+    })
 }
 
 pub fn export(name: &str, gpx: &Gpx) -> String {
@@ -149,22 +274,324 @@ pub fn export(name: &str, gpx: &Gpx) -> String {
 }
 
 pub fn import(journey_string: &str) -> Result<(String, Gpx), String> {
-    if let Some(journey) = decode(journey_string) {
-        let name = journey.name.clone();
-        let metadata = gpx::Metadata {
-            name: Some(name.clone()),
-            ..Default::default()
-        };
-        let mut gpx = from_polyline(&journey.polyline);
-        gpx.metadata = Some(metadata);
-        Ok((name, gpx))
-    } else {
-        Err(String::from("Not a valid Journey"))
-    }
+    let journey = decode(journey_string)?;
+    let name = journey.name;
+    let metadata = gpx::Metadata {
+        name: Some(name.clone()),
+        ..Default::default()
+    };
+    let mut gpx = from_polyline(&journey.polyline)?;
+    gpx.metadata = Some(metadata);
+    validate_gpx(&gpx)?;
+    Ok((name, gpx))
 }
 
 pub fn import_sample() -> Result<(String, Gpx), String> {
     import(SAMPLE_JOURNEY)
+}
+
+fn preflight_gpx<R: Read>(reader: R) -> Result<(), String> {
+    use xml::reader::{EventReader, XmlEvent};
+
+    let mut tracks = 0usize;
+    let mut routes = 0usize;
+    let mut segments = 0usize;
+    let mut points = 0usize;
+    let mut links = 0usize;
+    let mut metadata_bytes = 0usize;
+    let mut element_count = 0usize;
+    let mut unknown_element_count = 0usize;
+    let mut text_elements = Vec::new();
+
+    for event in EventReader::new(reader) {
+        match event.map_err(|e| format!("Failed to parse GPX XML: {e}"))? {
+            XmlEvent::StartElement {
+                name, attributes, ..
+            } => {
+                increment_limit(&mut element_count, MAX_GPX_XML_ELEMENTS, "XML elements")?;
+                if !is_known_gpx_element(&name.local_name) {
+                    increment_limit(
+                        &mut unknown_element_count,
+                        MAX_GPX_UNKNOWN_ELEMENTS,
+                        "unknown XML elements",
+                    )?;
+                }
+                match name.local_name.as_str() {
+                    "trk" => increment_limit(&mut tracks, MAX_GPX_TRACKS, "tracks")?,
+                    "rte" => increment_limit(&mut routes, MAX_GPX_ROUTES, "routes")?,
+                    "trkseg" => increment_limit(&mut segments, MAX_GPX_SEGMENTS, "track segments")?,
+                    "trkpt" | "rtept" | "wpt" => {
+                        increment_limit(&mut points, MAX_GPX_POINTS, "points")?
+                    }
+                    "link" => increment_limit(&mut links, MAX_GPX_LINKS, "links")?,
+                    _ => {}
+                }
+
+                for attribute in attributes {
+                    if !matches!(
+                        attribute.name.local_name.as_str(),
+                        "lat" | "lon" | "version"
+                    ) {
+                        add_string(&mut metadata_bytes, &attribute.value)?;
+                    }
+                }
+                if text_elements.len() >= MAX_GPX_XML_DEPTH {
+                    return Err(format!(
+                        "GPX XML is nested too deeply (maximum {MAX_GPX_XML_DEPTH} levels)"
+                    ));
+                }
+                text_elements.push(is_metadata_text_element(&name.local_name));
+            }
+            XmlEvent::EndElement { .. } => {
+                text_elements.pop();
+            }
+            XmlEvent::Characters(text) | XmlEvent::CData(text)
+                if text_elements.last().copied().unwrap_or(false) =>
+            {
+                add_string(&mut metadata_bytes, &text)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn increment_limit(count: &mut usize, maximum: usize, description: &str) -> Result<(), String> {
+    *count = count
+        .checked_add(1)
+        .ok_or_else(|| format!("GPX {description} count overflowed"))?;
+    if *count > maximum {
+        return Err(format!(
+            "GPX contains too many {description} (maximum {maximum})"
+        ));
+    }
+    Ok(())
+}
+
+fn is_known_gpx_element(name: &str) -> bool {
+    matches!(
+        name,
+        "gpx"
+            | "metadata"
+            | "name"
+            | "desc"
+            | "author"
+            | "email"
+            | "link"
+            | "text"
+            | "type"
+            | "time"
+            | "keywords"
+            | "bounds"
+            | "copyright"
+            | "year"
+            | "license"
+            | "wpt"
+            | "ele"
+            | "magvar"
+            | "geoidheight"
+            | "cmt"
+            | "src"
+            | "sym"
+            | "fix"
+            | "sat"
+            | "hdop"
+            | "vdop"
+            | "pdop"
+            | "ageofdgpsdata"
+            | "dgpsid"
+            | "extensions"
+            | "rte"
+            | "rtept"
+            | "number"
+            | "trk"
+            | "trkseg"
+            | "trkpt"
+            | "speed"
+            | "course"
+    )
+}
+
+fn is_metadata_text_element(name: &str) -> bool {
+    matches!(
+        name,
+        "name"
+            | "cmt"
+            | "desc"
+            | "src"
+            | "type"
+            | "sym"
+            | "keywords"
+            | "author"
+            | "email"
+            | "text"
+            | "fix"
+            | "license"
+    )
+}
+
+fn validate_gpx(gpx: &Gpx) -> Result<(), String> {
+    if gpx.tracks.len() > MAX_GPX_TRACKS {
+        return Err(format!(
+            "GPX contains too many tracks (maximum {MAX_GPX_TRACKS})"
+        ));
+    }
+    if gpx.routes.len() > MAX_GPX_ROUTES {
+        return Err(format!(
+            "GPX contains too many routes (maximum {MAX_GPX_ROUTES})"
+        ));
+    }
+
+    let segment_count = gpx
+        .tracks
+        .iter()
+        .try_fold(0usize, |total, track| {
+            total.checked_add(track.segments.len())
+        })
+        .ok_or_else(|| "GPX segment count overflowed".to_string())?;
+    if segment_count > MAX_GPX_SEGMENTS {
+        return Err(format!(
+            "GPX contains too many track segments (maximum {MAX_GPX_SEGMENTS})"
+        ));
+    }
+
+    let mut point_count = gpx.waypoints.len();
+    for track in &gpx.tracks {
+        for segment in &track.segments {
+            point_count = point_count
+                .checked_add(segment.points.len())
+                .ok_or_else(|| "GPX point count overflowed".to_string())?;
+        }
+    }
+    for route in &gpx.routes {
+        point_count = point_count
+            .checked_add(route.points.len())
+            .ok_or_else(|| "GPX point count overflowed".to_string())?;
+    }
+    if point_count > MAX_GPX_POINTS {
+        return Err(format!(
+            "GPX contains too many points (maximum {MAX_GPX_POINTS})"
+        ));
+    }
+
+    let mut metadata_bytes = 0usize;
+    let mut link_count = 0usize;
+    add_optional_string(&mut metadata_bytes, gpx.creator.as_deref())?;
+    if let Some(metadata) = &gpx.metadata {
+        add_optional_string(&mut metadata_bytes, metadata.name.as_deref())?;
+        add_optional_string(&mut metadata_bytes, metadata.description.as_deref())?;
+        add_optional_string(&mut metadata_bytes, metadata.keywords.as_deref())?;
+        if let Some(author) = &metadata.author {
+            add_optional_string(&mut metadata_bytes, author.name.as_deref())?;
+            add_optional_string(&mut metadata_bytes, author.email.as_deref())?;
+            if let Some(link) = &author.link {
+                add_link(&mut metadata_bytes, &mut link_count, link)?;
+            }
+        }
+        if let Some(copyright) = &metadata.copyright {
+            add_optional_string(&mut metadata_bytes, copyright.author.as_deref())?;
+            add_optional_string(&mut metadata_bytes, copyright.license.as_deref())?;
+        }
+        for link in &metadata.links {
+            add_link(&mut metadata_bytes, &mut link_count, link)?;
+        }
+    }
+
+    for waypoint in &gpx.waypoints {
+        validate_waypoint(waypoint, &mut metadata_bytes, &mut link_count)?;
+    }
+    for track in &gpx.tracks {
+        add_optional_string(&mut metadata_bytes, track.name.as_deref())?;
+        add_optional_string(&mut metadata_bytes, track.comment.as_deref())?;
+        add_optional_string(&mut metadata_bytes, track.description.as_deref())?;
+        add_optional_string(&mut metadata_bytes, track.source.as_deref())?;
+        add_optional_string(&mut metadata_bytes, track.type_.as_deref())?;
+        for link in &track.links {
+            add_link(&mut metadata_bytes, &mut link_count, link)?;
+        }
+        for segment in &track.segments {
+            for waypoint in &segment.points {
+                validate_waypoint(waypoint, &mut metadata_bytes, &mut link_count)?;
+            }
+        }
+    }
+    for route in &gpx.routes {
+        add_optional_string(&mut metadata_bytes, route.name.as_deref())?;
+        add_optional_string(&mut metadata_bytes, route.comment.as_deref())?;
+        add_optional_string(&mut metadata_bytes, route.description.as_deref())?;
+        add_optional_string(&mut metadata_bytes, route.source.as_deref())?;
+        add_optional_string(&mut metadata_bytes, route.type_.as_deref())?;
+        for link in &route.links {
+            add_link(&mut metadata_bytes, &mut link_count, link)?;
+        }
+        for waypoint in &route.points {
+            validate_waypoint(waypoint, &mut metadata_bytes, &mut link_count)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_waypoint(
+    waypoint: &Waypoint,
+    metadata_bytes: &mut usize,
+    link_count: &mut usize,
+) -> Result<(), String> {
+    let point = waypoint.point();
+    if !point.x().is_finite()
+        || !point.y().is_finite()
+        || !(-180.0..=180.0).contains(&point.x())
+        || !(-90.0..=90.0).contains(&point.y())
+    {
+        return Err("GPX contains an invalid coordinate".to_string());
+    }
+
+    add_optional_string(metadata_bytes, waypoint.name.as_deref())?;
+    add_optional_string(metadata_bytes, waypoint.comment.as_deref())?;
+    add_optional_string(metadata_bytes, waypoint.description.as_deref())?;
+    add_optional_string(metadata_bytes, waypoint.source.as_deref())?;
+    add_optional_string(metadata_bytes, waypoint.symbol.as_deref())?;
+    add_optional_string(metadata_bytes, waypoint.type_.as_deref())?;
+    if let Some(gpx::Fix::Other(value)) = &waypoint.fix {
+        add_string(metadata_bytes, value)?;
+    }
+    for link in &waypoint.links {
+        add_link(metadata_bytes, link_count, link)?;
+    }
+    Ok(())
+}
+
+fn add_link(metadata_bytes: &mut usize, link_count: &mut usize, link: &Link) -> Result<(), String> {
+    *link_count = link_count
+        .checked_add(1)
+        .ok_or_else(|| "GPX link count overflowed".to_string())?;
+    if *link_count > MAX_GPX_LINKS {
+        return Err(format!(
+            "GPX contains too many links (maximum {MAX_GPX_LINKS})"
+        ));
+    }
+    add_string(metadata_bytes, &link.href)?;
+    add_optional_string(metadata_bytes, link.text.as_deref())?;
+    add_optional_string(metadata_bytes, link.type_.as_deref())
+}
+
+fn add_optional_string(total: &mut usize, value: Option<&str>) -> Result<(), String> {
+    if let Some(value) = value {
+        add_string(total, value)?;
+    }
+    Ok(())
+}
+
+fn add_string(total: &mut usize, value: &str) -> Result<(), String> {
+    *total = total
+        .checked_add(value.len())
+        .ok_or_else(|| "GPX metadata size overflowed".to_string())?;
+    if *total > MAX_GPX_METADATA_BYTES {
+        return Err(format!(
+            "GPX metadata is too large (maximum {MAX_GPX_METADATA_BYTES} bytes)"
+        ));
+    }
+    Ok(())
 }
 
 pub fn name_from_gpx(gpx: &Gpx) -> String {

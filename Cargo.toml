@@ -16,8 +16,9 @@ qrcode = "0.14.1"
 serde = "1.0.228"
 walkers = "0.58.0"
 zstd = "0.13.3"
-rfd = "0.17.2"
+rfd = { version = "0.17.2", features = ["file-handle-inner"] }
 poll-promise = "0.3.0"
+xml-rs = "0.8.28"
 
 # desktop dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -35,6 +36,8 @@ eframe = { version = "0.36.1", default-features = false, features = [
     "persistence",
 ] }
 web-sys = { version = "0.3", features = [
+    "Blob",
+    "File",
     "Window",
     "Document",
     "HtmlElement",
@@ -46,4 +49,5 @@ web-sys = { version = "0.3", features = [
 ] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
 console_error_panic_hook = "0.1"
