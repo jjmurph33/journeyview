@@ -19,6 +19,7 @@ use walkers::{
 
 static BUTTON_TEXT_SIZE: f32 = 22.0;
 static BUTTON_HEIGHT: f32 = 50.0;
+static COMPACT_WIDTH: f32 = 900.0;
 
 #[derive(PartialEq, Default)]
 enum Mode {
@@ -108,12 +109,25 @@ impl App {
     }
 
     fn top_panel(&mut self, ui: &mut Ui) {
-        let compact = ui.available_width() < 720.0;
+        let compact = ui.available_width() < COMPACT_WIDTH;
 
         if compact {
-            self.journey_summary(ui, true);
-            ui.add_space(8.0);
-            self.top_actions(ui, true);
+            let actions_width = 180.0_f32.min(ui.available_width() * 0.52);
+            let summary_width =
+                (ui.available_width() - actions_width - ui.spacing().item_spacing.x).max(0.0);
+
+            ui.horizontal_top(|ui| {
+                ui.allocate_ui_with_layout(
+                    Vec2::new(summary_width, 0.0),
+                    Layout::top_down(Align::LEFT),
+                    |ui| self.journey_summary(ui, true),
+                );
+                ui.allocate_ui_with_layout(
+                    Vec2::new(actions_width, 0.0),
+                    Layout::top_down(Align::Center),
+                    |ui| self.top_actions(ui, true),
+                );
+            });
         } else {
             ui.horizontal(|ui| {
                 self.journey_summary(ui, false);
@@ -129,11 +143,6 @@ impl App {
     }
 
     fn journey_summary(&mut self, ui: &mut Ui, compact: bool) {
-        let compact_scale = if compact {
-            ui.ctx().pixels_per_point().max(1.0)
-        } else {
-            1.0
-        };
         ui.vertical(|ui| {
             ui.horizontal_wrapped(|ui| {
                 if self.name_editing {
@@ -146,10 +155,10 @@ impl App {
                     } else {
                         ui.available_width().min(360.0)
                     };
-                    let edit_height = if compact { 30.0 / compact_scale } else { 30.0 };
+                    let edit_height = 30.0;
                     let edit = TextEdit::singleline(&mut self.name_buffer).id(name_edit_id);
                     let edit = if compact {
-                        edit.font(FontId::new(16.0 / compact_scale, FontFamily::Proportional))
+                        edit.font(FontId::new(16.0, FontFamily::Proportional))
                     } else {
                         edit.font(TextStyle::Heading)
                     };
@@ -175,7 +184,7 @@ impl App {
                     let label_button = ui.add(
                         Label::new(
                             RichText::new(self.name.clone())
-                                .size(if compact { 22.0 / compact_scale } else { 28.0 })
+                                .size(if compact { 22.0 } else { 28.0 })
                                 .color(Color32::from_rgb(200, 220, 255))
                                 .strong(),
                         )
@@ -189,7 +198,7 @@ impl App {
                 }
             });
 
-            let stat_size = if compact { 15.0 / compact_scale } else { 18.0 };
+            let stat_size = if compact { 15.0 } else { 18.0 };
             ui.label(
                 RichText::new(format!("Distance: {:.1}mi", self.distance))
                     .size(stat_size)
@@ -213,13 +222,9 @@ impl App {
                         .color(Color32::from_rgb(210, 210, 220)),
                 );
                 let button = ui.add(
-                    Button::new(
-                        RichText::new("\u{2139}")
-                            .size(if compact { 10.0 / compact_scale } else { 10.0 })
-                            .color(Color32::WHITE),
-                    )
-                    .fill(Color32::from_rgb(33, 150, 243))
-                    .corner_radius(5.0),
+                    Button::new(RichText::new("\u{2139}").size(10.0).color(Color32::WHITE))
+                        .fill(Color32::from_rgb(33, 150, 243))
+                        .corner_radius(5.0),
                 );
                 if button.clicked() {
                     self.mode = if self.mode == Mode::Info {
@@ -233,83 +238,88 @@ impl App {
     }
 
     fn top_actions(&mut self, ui: &mut Ui, compact: bool) {
-        let compact_scale = ui.ctx().pixels_per_point().max(1.0);
         let button_width = if compact {
-            130.0 / compact_scale
+            (ui.available_width() - ui.spacing().item_spacing.x) * 0.5
         } else {
             150.0
         };
-        let button_height = if compact { 44.0 / compact_scale } else { 50.0 };
-        let text_size = if compact {
-            14.0 / compact_scale
-        } else {
-            BUTTON_TEXT_SIZE
-        };
+        let button_height = if compact { 44.0 } else { 50.0 };
+        let text_size = if compact { 14.0 } else { BUTTON_TEXT_SIZE };
 
-        let render_buttons = |ui: &mut Ui, app: &mut Self| {
-            if top_action_button(
-                ui,
-                "Export",
-                button_width,
-                button_height,
-                text_size,
-                Color32::from_rgb(33, 150, 243),
-                Color32::from_rgb(21, 101, 192),
-            ) {
-                app.mode = Mode::Export;
-            }
-
-            if top_action_button(
-                ui,
-                "Import",
-                button_width,
-                button_height,
-                text_size,
-                Color32::from_rgb(33, 150, 243),
-                Color32::from_rgb(21, 101, 192),
-            ) {
-                app.mode = Mode::Import;
-                if let Some(clipboard_text) = read_clipboard() {
-                    app.import_buffer = clipboard_text;
-                } else {
-                    app.import_buffer.clear();
+        let render_buttons = |ui: &mut Ui, app: &mut Self, order: [u8; 4]| {
+            for action in order {
+                match action {
+                    0 => {
+                        if top_action_button(
+                            ui,
+                            "Export",
+                            button_width,
+                            button_height,
+                            text_size,
+                            Color32::from_rgb(33, 150, 243),
+                            Color32::from_rgb(21, 101, 192),
+                        ) {
+                            app.mode = Mode::Export;
+                        }
+                    }
+                    1 => {
+                        if top_action_button(
+                            ui,
+                            "Import",
+                            button_width,
+                            button_height,
+                            text_size,
+                            Color32::from_rgb(33, 150, 243),
+                            Color32::from_rgb(21, 101, 192),
+                        ) {
+                            app.mode = Mode::Import;
+                            if let Some(clipboard_text) = read_clipboard() {
+                                app.import_buffer = clipboard_text;
+                            } else {
+                                app.import_buffer.clear();
+                            }
+                        }
+                    }
+                    2 => {
+                        if top_action_button(
+                            ui,
+                            "Load File",
+                            button_width,
+                            button_height,
+                            text_size,
+                            Color32::from_rgb(33, 150, 243),
+                            Color32::from_rgb(21, 101, 192),
+                        ) {
+                            app.open_gpx_file();
+                        }
+                    }
+                    3 => {
+                        if top_action_button(
+                            ui,
+                            if app.show_elevation {
+                                "Map"
+                            } else {
+                                "Elevation"
+                            },
+                            button_width,
+                            button_height,
+                            text_size,
+                            Color32::from_rgb(76, 175, 80),
+                            Color32::from_rgb(56, 142, 60),
+                        ) {
+                            app.show_elevation = !app.show_elevation;
+                            app.mode = Mode::Normal;
+                        }
+                    }
+                    _ => unreachable!(),
                 }
-            }
-
-            if top_action_button(
-                ui,
-                "Load File",
-                button_width,
-                button_height,
-                text_size,
-                Color32::from_rgb(33, 150, 243),
-                Color32::from_rgb(21, 101, 192),
-            ) {
-                app.open_gpx_file();
-            }
-
-            if top_action_button(
-                ui,
-                if app.show_elevation {
-                    "Map"
-                } else {
-                    "Elevation"
-                },
-                button_width,
-                button_height,
-                text_size,
-                Color32::from_rgb(76, 175, 80),
-                Color32::from_rgb(56, 142, 60),
-            ) {
-                app.show_elevation = !app.show_elevation;
-                app.mode = Mode::Normal;
             }
         };
 
         if compact {
-            ui.horizontal_wrapped(|ui| render_buttons(ui, self));
+            ui.horizontal_wrapped(|ui| render_buttons(ui, self, [0, 1, 2, 3]));
         } else {
-            render_buttons(ui, self);
+            render_buttons(ui, self, [0, 1, 2, 3]);
         }
     }
 
@@ -373,9 +383,10 @@ impl App {
     }
 
     fn export_panel(&mut self, ui: &mut Ui) {
+        let compact = ui.available_width() < COMPACT_WIDTH;
         let content_height =
-            ui.available_height() - BUTTON_HEIGHT - ui.spacing().item_spacing.y * 8.0;
-        let size = Vec2::new(ui.available_width() * 0.5, content_height);
+            (ui.available_height() - BUTTON_HEIGHT - ui.spacing().item_spacing.y * 8.0).max(0.0);
+        let horizontal_size = Vec2::new(ui.available_width() * 0.5, content_height);
 
         let mut url = self.url.clone().unwrap_or_default();
 
@@ -392,114 +403,158 @@ impl App {
         let mut changed = false; // need to regenerate qrcode if text changes
 
         ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
+            let content_layout = if compact {
+                Layout::top_down(Align::LEFT)
+            } else {
+                Layout::left_to_right(Align::TOP)
+            };
+
             ui.allocate_ui_with_layout(
                 Vec2::new(ui.available_width(), content_height),
-                Layout::left_to_right(Align::TOP),
+                content_layout,
                 |ui| {
+                    let text_size = if compact {
+                        Vec2::new(ui.available_width(), content_height * 0.35)
+                    } else {
+                        horizontal_size
+                    };
+
+                    if self.include_url {
+                        let export_url = format!("{}/?j=", url.trim_end_matches("/"));
+                        export_string.insert_str(0, &export_url);
+                    }
+
                     CollapsingHeader::new("Export Text".to_string())
-                        .default_open(true)
+                        .default_open(!compact)
                         .show(ui, |ui| {
-                            ui.allocate_ui_with_layout(size, Layout::top_down(Align::LEFT), |ui| {
-                                ui.horizontal(|ui| {
-                                    if ui
-                                        .checkbox(&mut self.include_url, "Include URL: ")
-                                        .changed()
-                                    {
-                                        changed = true;
-                                    }
-                                    if ui
-                                        .add_enabled(
-                                            self.include_url,
-                                            TextEdit::singleline(&mut url),
-                                        )
-                                        .changed()
-                                    {
-                                        self.url.replace(url.to_string());
-                                        changed = true;
-                                    };
-                                });
-
-                                if self.include_url {
-                                    let export_url = format!("{}/?j=", url.trim_end_matches("/"));
-                                    export_string.insert_str(0, &export_url);
-                                }
-
-                                let id = egui::Id::new("export_text");
-                                let text_height = ui.available_height();
-                                let initialized =
-                                    ui.memory(|m| m.data.get_temp::<bool>(id)).unwrap_or(false);
-
-                                ui.add_space(1.0);
-
-                                ScrollArea::vertical()
-                                    .min_scrolled_height(text_height)
-                                    .max_height(text_height)
-                                    .show(ui, |ui| {
-                                        ui.add_sized(
-                                            Vec2::new(ui.available_width(), text_height),
-                                            TextEdit::multiline(&mut export_string.as_str())
-                                                .font(FontId::new(18.0, FontFamily::Proportional))
-                                                .id(id),
-                                        );
+                            ui.allocate_ui_with_layout(
+                                text_size,
+                                Layout::top_down(Align::LEFT),
+                                |ui| {
+                                    ui.horizontal(|ui| {
+                                        if ui
+                                            .checkbox(&mut self.include_url, "Include URL: ")
+                                            .changed()
+                                        {
+                                            changed = true;
+                                        }
+                                        if ui
+                                            .add_enabled(
+                                                self.include_url,
+                                                TextEdit::singleline(&mut url),
+                                            )
+                                            .changed()
+                                        {
+                                            self.url.replace(url.to_string());
+                                            changed = true;
+                                        };
                                     });
 
-                                // TODO: need a way to reset this after leaving the panel and rentering
-                                // select all of the text when first entering
-                                if !initialized {
-                                    let mut state =
-                                        TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
-                                    state.cursor.set_char_range(Some(
-                                        egui::text::CCursorRange::two(
-                                            egui::text::CCursor::new(0),
-                                            egui::text::CCursor::new(
-                                                export_string.clone().chars().count(),
+                                    let id = egui::Id::new("export_text");
+                                    let text_height = ui.available_height();
+                                    let initialized =
+                                        ui.memory(|m| m.data.get_temp::<bool>(id)).unwrap_or(false);
+
+                                    ui.add_space(1.0);
+
+                                    ScrollArea::vertical()
+                                        .min_scrolled_height(text_height)
+                                        .max_height(text_height)
+                                        .show(ui, |ui| {
+                                            ui.add_sized(
+                                                Vec2::new(ui.available_width(), text_height),
+                                                TextEdit::multiline(&mut export_string.as_str())
+                                                    .font(FontId::new(
+                                                        18.0,
+                                                        FontFamily::Proportional,
+                                                    ))
+                                                    .id(id),
+                                            );
+                                        });
+
+                                    // TODO: need a way to reset this after leaving the panel and rentering
+                                    // select all of the text when first entering
+                                    if !initialized {
+                                        let mut state =
+                                            TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+                                        state.cursor.set_char_range(Some(
+                                            egui::text::CCursorRange::two(
+                                                egui::text::CCursor::new(0),
+                                                egui::text::CCursor::new(
+                                                    export_string.clone().chars().count(),
+                                                ),
                                             ),
-                                        ),
-                                    ));
-                                    state.store(ui.ctx(), id);
-                                    ui.memory_mut(|m| {
-                                        m.request_focus(id); // give focus to the text area
-                                        m.data.insert_temp(id, true); // set initialized flag
-                                    });
-                                }
-                            });
+                                        ));
+                                        state.store(ui.ctx(), id);
+                                        ui.memory_mut(|m| {
+                                            m.request_focus(id); // give focus to the text area
+                                            m.data.insert_temp(id, true); // set initialized flag
+                                        });
+                                    }
+                                },
+                            );
                         });
+
+                    if changed {
+                        export_string = self.export_string.clone();
+                        if self.include_url {
+                            let export_url = format!("{}/?j=", url.trim_end_matches("/"));
+                            export_string.insert_str(0, &export_url);
+                        }
+                    }
 
                     if self.qrcode.is_none() || changed {
                         self.qrcode = qr_to_texture(ui.ctx(), &export_string); // generate the QR code
                     }
                     if let Some(texture) = &self.qrcode {
-                        ui.add_sized(size, Image::new(texture).shrink_to_fit());
+                        if compact {
+                            let qr_area = ui.available_size();
+                            ui.allocate_ui_with_layout(
+                                qr_area,
+                                Layout::top_down(Align::Center),
+                                |ui| {
+                                    let side = ui.available_width().min(ui.available_height());
+                                    ui.add(
+                                        Image::new(texture)
+                                            .fit_to_exact_size(Vec2::splat(side.max(0.0))),
+                                    );
+                                },
+                            );
+                        } else {
+                            ui.add_sized(horizontal_size, Image::new(texture).shrink_to_fit());
+                        }
                     } else {
-                        ui.add_sized(size, Label::new("Error Generating QRCode"));
+                        let error_size = if compact {
+                            ui.available_size()
+                        } else {
+                            horizontal_size
+                        };
+                        ui.add_sized(error_size, Label::new("Error Generating QRCode"));
                     }
                 },
             );
 
             ui.horizontal(|ui| {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    if ui
-                        .add(
-                            Button::new(
-                                RichText::new("Copy to clipboard")
-                                    .size(16.0)
-                                    .color(Color32::from_rgb(255, 255, 255)),
-                            )
-                            .min_size(Vec2::new(150.0, 50.0))
-                            .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                            .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                if ui
+                    .add(
+                        Button::new(
+                            RichText::new("Copy to clipboard")
+                                .size(16.0)
+                                .color(Color32::from_rgb(255, 255, 255)),
                         )
-                        .clicked()
-                        && !export_string.trim().is_empty()
-                    {
-                        ui.copy_text(export_string.clone());
-                        self.mode = Mode::Normal;
-                        log::info!(
-                            "Copied exported journey to clipboard ({} chars)",
-                            export_string.len()
-                        );
-                    }
+                        .min_size(Vec2::new(150.0, 50.0))
+                        .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                        .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
+                    )
+                    .clicked()
+                    && !export_string.trim().is_empty()
+                {
+                    ui.copy_text(export_string.clone());
+                    self.mode = Mode::Normal;
+                    log::info!(
+                        "Copied exported journey to clipboard ({} chars)",
+                        export_string.len()
+                    );
                 }
                 if ui
                     .add(
