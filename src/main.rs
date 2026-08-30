@@ -1,16 +1,25 @@
 // TODO
-// map behind plot
 // name should use filename if gpx name is just a timestamp
 // load file should default to current directory and/or most recent
-// load file on web
-//
 
 mod app;
 mod journey;
 
 #[cfg(not(target_arch = "wasm32"))]
+fn init_logger() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("error")).init();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn init_logger() {
+    console_log::init_with_level(log::Level::Error).expect("failed to initialize console logger");
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 // native entry point
 fn main() -> eframe::Result {
+    init_logger();
+
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([1800.0, 1000.0])
@@ -21,6 +30,7 @@ fn main() -> eframe::Result {
     };
 
     let (name, gpx) = journey::import_sample().unwrap();
+    log::info!("Loaded sample journey: {}", name);
 
     eframe::run_native(
         "Journey View",
@@ -33,18 +43,11 @@ fn main() -> eframe::Result {
 }
 
 #[cfg(target_arch = "wasm32")]
-// console! - like println! but for the browser console
-macro_rules! console {
-    ($($t:tt)*) => {
-        web_sys::console::log_1(&format!($($t)*).into())
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
 // wasm entry point
 fn main() {
     use wasm_bindgen::JsCast;
     console_error_panic_hook::set_once();
+    init_logger();
 
     wasm_bindgen_futures::spawn_local(async {
         let window = web_sys::window().expect("no window");
@@ -60,6 +63,7 @@ fn main() {
         let web_options = eframe::WebOptions::default();
 
         let (mut name, mut gpx) = journey::import_sample().unwrap();
+        log::info!("Loaded sample journey in browser: {}", name);
 
         let mut url = String::new();
         if let Ok(origin) = window.location().origin() {
@@ -76,10 +80,10 @@ fn main() {
                         Ok((qstring_name, qstring_gpx)) => {
                             name = qstring_name.clone();
                             gpx = qstring_gpx.clone();
-                            console!("New journey: {}", name);
+                            log::info!("Loaded journey from URL: {}", name);
                         }
                         Err(_) => {
-                            console!("Failed to decode journey");
+                            log::warn!("Failed to decode journey from URL");
                         }
                     }
                 }

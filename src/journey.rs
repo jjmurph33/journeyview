@@ -105,7 +105,7 @@ fn encode(name: &str, polyline: &str) -> String {
     match zstd::encode_all(data.as_bytes(), 0) {
         Ok(compressed) => URL_SAFE_NO_PAD.encode(&compressed),
         Err(e) => {
-            eprint!("Error compressing data: {}", e);
+            log::error!("Error compressing data: {}", e);
             String::new()
         }
     }
@@ -129,16 +129,16 @@ pub fn decode(encoded: &str) -> Option<Journey> {
                             };
                             return Some(journey);
                         } else {
-                            eprintln!("Version {} not supported", version);
+                            log::warn!("Version {} not supported", version);
                             return None;
                         }
                     }
                 }
-                Err(e) => eprintln!("Error decoding imported data: {}", e),
+                Err(e) => log::error!("Error decoding imported data: {}", e),
             },
-            Err(e) => eprintln!("Error decompressing imported data: {}", e),
+            Err(e) => log::error!("Error decompressing imported data: {}", e),
         },
-        Err(e) => eprintln!("Error reading imported data: {}", e),
+        Err(e) => log::error!("Error reading imported data: {}", e),
     }
     None
 }

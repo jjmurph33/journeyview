@@ -4,9 +4,9 @@ use crate::journey::{
 };
 use eframe::egui;
 use egui::{
-    Align, Button, CentralPanel, Color32, ColorImage, Context, FontFamily, FontId, Frame, Image,
-    Key, Label, Layout, Margin, Panel, RichText, ScrollArea, Sense, Stroke, TextEdit, TextStyle,
-    TextureHandle, TextureOptions, Ui, Vec2,
+    Align, Button, CentralPanel, CollapsingHeader, Color32, ColorImage, Context, FontFamily,
+    FontId, Frame, Image, Key, Label, Layout, Margin, Panel, RichText, ScrollArea, Sense, Stroke,
+    TextEdit, TextStyle, TextureHandle, TextureOptions, Ui, Vec2,
 };
 use egui_plot::{Line, Plot};
 use gpx::Gpx;
@@ -18,6 +18,7 @@ use walkers::{
 };
 
 static BUTTON_TEXT_SIZE: f32 = 22.0;
+static BUTTON_HEIGHT: f32 = 50.0;
 
 #[derive(PartialEq, Default)]
 enum Mode {
@@ -89,6 +90,8 @@ impl App {
         };
         self.init(ctx);
         self.reset_ui();
+
+        log::info!("Loaded journey '{}'", self.name);
     }
 
     fn reset_ui(&mut self) {
@@ -307,9 +310,8 @@ impl App {
 
     fn import_panel(&mut self, ui: &mut Ui) {
         ui.label("Journey Code:");
-        let button_row_height = 50.0;
         let scroll_height =
-            (ui.available_height() - button_row_height - ui.spacing().item_spacing.y).max(0.0);
+            ui.available_height() - BUTTON_HEIGHT - ui.spacing().item_spacing.y * 2.0;
         ui.allocate_ui_with_layout(
             Vec2::new(ui.available_width(), scroll_height),
             Layout::left_to_right(Align::TOP),
@@ -366,15 +368,19 @@ impl App {
     }
 
     fn export_panel(&mut self, ui: &mut Ui) {
-        let button_row_height = 50.0;
         let content_height =
-            (ui.available_height() - button_row_height - ui.spacing().item_spacing.y).max(0.0);
+            ui.available_height() - BUTTON_HEIGHT - ui.spacing().item_spacing.y * 8.0;
         let size = Vec2::new(ui.available_width() * 0.5, content_height);
 
         let mut url = self.url.clone().unwrap_or_default();
 
         if self.export_string.is_empty() {
             self.export_string = journey::export(&self.name, &self.gpx);
+            log::info!(
+                "Generated export payload for '{}' ({} chars)",
+                self.name,
+                self.export_string.len()
+            );
         }
         let mut export_string = self.export_string.clone(); // temp copy that may include url
 
@@ -385,63 +391,74 @@ impl App {
                 Vec2::new(ui.available_width(), content_height),
                 Layout::left_to_right(Align::TOP),
                 |ui| {
-                    ui.allocate_ui_with_layout(size, Layout::top_down(Align::LEFT), |ui| {
-                        ui.spacing();
-                        ui.horizontal(|ui| {
-                            ui.spacing();
-                            if ui
-                                .checkbox(&mut self.include_url, "Include URL: ")
-                                .changed()
-                            {
-                                changed = true;
-                            }
-                            if ui
-                                .add_enabled(self.include_url, TextEdit::singleline(&mut url))
-                                .changed()
-                            {
-                                self.url.replace(url.to_string());
-                                changed = true;
-                            };
-                            if self.include_url {
-                                let export_url = format!("{}/?j=", url.trim_end_matches("/"));
-                                export_string.insert_str(0, &export_url);
-                            }
+                    CollapsingHeader::new("Export Text".to_string())
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            ui.allocate_ui_with_layout(size, Layout::top_down(Align::LEFT), |ui| {
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .checkbox(&mut self.include_url, "Include URL: ")
+                                        .changed()
+                                    {
+                                        changed = true;
+                                    }
+                                    if ui
+                                        .add_enabled(
+                                            self.include_url,
+                                            TextEdit::singleline(&mut url),
+                                        )
+                                        .changed()
+                                    {
+                                        self.url.replace(url.to_string());
+                                        changed = true;
+                                    };
+                                });
+
+                                if self.include_url {
+                                    let export_url = format!("{}/?j=", url.trim_end_matches("/"));
+                                    export_string.insert_str(0, &export_url);
+                                }
+
+                                let id = egui::Id::new("export_text");
+                                let text_height = ui.available_height();
+                                let initialized =
+                                    ui.memory(|m| m.data.get_temp::<bool>(id)).unwrap_or(false);
+
+                                ui.add_space(1.0);
+
+                                ScrollArea::vertical()
+                                    .min_scrolled_height(text_height)
+                                    .max_height(text_height)
+                                    .show(ui, |ui| {
+                                        ui.add_sized(
+                                            Vec2::new(ui.available_width(), text_height),
+                                            TextEdit::multiline(&mut export_string.as_str())
+                                                .font(FontId::new(18.0, FontFamily::Proportional))
+                                                .id(id),
+                                        );
+                                    });
+
+                                // TODO: need a way to reset this after leaving the panel and rentering
+                                // select all of the text when first entering
+                                if !initialized {
+                                    let mut state =
+                                        TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+                                    state.cursor.set_char_range(Some(
+                                        egui::text::CCursorRange::two(
+                                            egui::text::CCursor::new(0),
+                                            egui::text::CCursor::new(
+                                                export_string.clone().chars().count(),
+                                            ),
+                                        ),
+                                    ));
+                                    state.store(ui.ctx(), id);
+                                    ui.memory_mut(|m| {
+                                        m.request_focus(id); // give focus to the text area
+                                        m.data.insert_temp(id, true); // set initialized flag
+                                    });
+                                }
+                            });
                         });
-
-                        ui.spacing();
-
-                        let id = egui::Id::new("export_text");
-                        let initialized =
-                            ui.memory(|m| m.data.get_temp::<bool>(id)).unwrap_or(false);
-                        let text_height = ui.available_height();
-                        ScrollArea::vertical()
-                            .min_scrolled_height(text_height)
-                            .max_height(text_height)
-                            .show(ui, |ui| {
-                                ui.add_sized(
-                                    Vec2::new(ui.available_width(), text_height),
-                                    TextEdit::multiline(&mut export_string.as_str())
-                                        .font(FontId::new(18.0, FontFamily::Proportional))
-                                        .id(id),
-                                );
-                            });
-                        // TODO: need a way to reset this after leaving the panel and rentering
-                        // select all of the text when first entering
-                        if !initialized {
-                            let mut state = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
-                            state
-                                .cursor
-                                .set_char_range(Some(egui::text::CCursorRange::two(
-                                    egui::text::CCursor::new(0),
-                                    egui::text::CCursor::new(export_string.clone().chars().count()),
-                                )));
-                            state.store(ui.ctx(), id);
-                            ui.memory_mut(|m| {
-                                m.request_focus(id); // give focus to the text area
-                                m.data.insert_temp(id, true); // set initialized flag
-                            });
-                        }
-                    });
 
                     if self.qrcode.is_none() || changed {
                         self.qrcode = qr_to_texture(ui.ctx(), &export_string); // generate the QR code
@@ -471,11 +488,12 @@ impl App {
                         .clicked()
                         && !export_string.trim().is_empty()
                     {
-                        println!("{}\n", export_string.clone());
-                        if set_clipboard(export_string.clone()) {
-                            // TODO: show a status message that the text was copied to the clipboard
-                        }
+                        ui.copy_text(export_string.clone());
                         self.mode = Mode::Normal;
+                        log::info!(
+                            "Copied exported journey to clipboard ({} chars)",
+                            export_string.len()
+                        );
                     }
                 }
                 if ui
@@ -498,27 +516,45 @@ impl App {
     }
 
     fn info_panel(&mut self, ui: &mut Ui) {
-        ui.label("GPX Info");
-        ScrollArea::vertical().show(ui, |ui| {
-            ui.label(journey::info(&self.gpx));
-        });
+        let content_height =
+            ui.available_height() - BUTTON_HEIGHT - ui.spacing().item_spacing.y * 2.0;
 
-        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-            if ui
-                .add(
-                    Button::new(
-                        RichText::new("Ok")
-                            .size(16.0)
-                            .color(Color32::from_rgb(255, 255, 255)),
+        ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
+            ui.allocate_ui_with_layout(
+                Vec2::new(ui.available_width(), content_height),
+                Layout::top_down(Align::LEFT),
+                |ui| {
+                    ui.label("GPX Info");
+                    let text_height = ui.available_height();
+                    ScrollArea::vertical()
+                        .min_scrolled_height(text_height)
+                        .max_height(text_height)
+                        .show(ui, |ui| {
+                            ui.add_sized(
+                                Vec2::new(ui.available_width(), text_height),
+                                TextEdit::multiline(&mut journey::info(&self.gpx)),
+                            );
+                        });
+                },
+            );
+
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                if ui
+                    .add(
+                        Button::new(
+                            RichText::new("Ok")
+                                .size(16.0)
+                                .color(Color32::from_rgb(255, 255, 255)),
+                        )
+                        .min_size(Vec2::new(150.0, 50.0))
+                        .fill(Color32::from_rgb(33, 150, 243)) // Blue
+                        .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
                     )
-                    .min_size(Vec2::new(150.0, 50.0))
-                    .fill(Color32::from_rgb(33, 150, 243)) // Blue
-                    .stroke(Stroke::new(1.5, Color32::from_rgb(21, 101, 192))),
-                )
-                .clicked()
-            {
-                self.mode = Mode::Normal;
-            }
+                    .clicked()
+                {
+                    self.mode = Mode::Normal;
+                }
+            });
         });
     }
 
@@ -693,6 +729,7 @@ impl App {
 
     fn open_gpx_file(&mut self) {
         let (sender, promise) = Promise::new();
+        log::info!("Opening GPX file picker");
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -708,9 +745,17 @@ impl App {
                     match file {
                         Some(file) => {
                             let data = file.read().await;
+                            log::info!(
+                                "Selected GPX file '{}' ({} bytes)",
+                                file.file_name(),
+                                data.len()
+                            );
                             Some(data)
                         }
-                        None => None,
+                        None => {
+                            log::warn!("GPX file picker cancelled");
+                            None
+                        }
                     }
                 });
                 sender.send(result);
@@ -730,9 +775,17 @@ impl App {
                 let result = match file {
                     Some(file) => {
                         let data = file.read().await;
+                        log::info!(
+                            "Selected GPX file '{}' ({} bytes)",
+                            file.file_name(),
+                            data.len()
+                        );
                         Some(data)
                     }
-                    None => None,
+                    None => {
+                        log::warn!("GPX file picker cancelled");
+                        None
+                    }
                 };
                 sender.send(result);
             });
@@ -744,21 +797,28 @@ impl App {
     fn load_file(&mut self, ctx: &Context, file_path: String) {
         match journey::load_gpx_file(&file_path) {
             Ok(gpx) => {
+                log::info!("Loaded GPX file '{}'", file_path);
                 self.load(ctx, gpx, None);
             }
-            Err(_e) => {
-                // TODO: show a status message that the file could not be loaded
+            Err(e) => {
+                log::error!("Failed to load GPX file '{}': {}", file_path, e);
             }
         }
     }
 
     fn load_journey_string(&mut self, ctx: &Context, journey_string: String) {
+        log::info!(
+            "Importing encoded journey string ({} chars)",
+            journey_string.len()
+        );
+
         match journey::import(&journey_string) {
             Ok((name, gpx)) => {
+                log::info!("Decoded journey '{}' and preparing to load it", name);
                 self.load(ctx, gpx, Some(name.clone()));
             }
-            Err(_) => {
-                // TODO: show a status message that the string could not be imported
+            Err(e) => {
+                log::error!("Failed to import journey string: {}", e);
             }
         }
     }
@@ -767,24 +827,24 @@ impl App {
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
         for file in dropped_files {
             let path = file.path();
-            // Only process .gpx files
             if let Some(ext) = path.extension() {
                 if ext.to_string_lossy().to_lowercase() == "gpx" {
                     let filename = path.to_string_lossy().to_string();
+                    log::info!("Dropped GPX file: {}", filename);
                     match journey::load_gpx_file(&filename) {
                         Ok(gpx) => {
                             self.load(ctx, gpx, None);
                         }
-                        Err(_e) => {
-                            // TODO: show a status message that the file could not be loaded
+                        Err(e) => {
+                            log::error!("Failed to load dropped GPX file '{}': {}", filename, e);
                         }
                     }
                     self.load_file(ctx, path.to_string_lossy().to_string());
                 } else {
-                    // TODO: show a status message that the file type is not supported
+                    log::warn!("Unsupported dropped file type: {}", path.display());
                 }
             } else {
-                // TODO: show a status message that the file has no extension
+                log::warn!("Dropped file has no extension: {}", path.display());
             }
         }
     }
@@ -820,20 +880,6 @@ fn read_clipboard() -> Option<String> {
     {
         return None;
     }
-}
-
-#[allow(unused)]
-fn set_clipboard(text: String) -> bool {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        if let Ok(mut clipboard) = arboard::Clipboard::new() {
-            clipboard.set_text(text).is_ok()
-        } else {
-            false
-        }
-    }
-    #[cfg(target_arch = "wasm32")]
-    false
 }
 
 fn qr_to_texture(ctx: &egui::Context, data: &str) -> Option<TextureHandle> {
@@ -896,7 +942,9 @@ fn openstreetmap_tiles(ctx: &egui::Context) -> HttpTiles {
     #[cfg(target_arch = "wasm32")]
     let options = walkers::HttpOptions::default();
 
-    HttpTiles::with_options(OpenStreetMap, options, ctx.clone())
+    let tiles = HttpTiles::with_options(OpenStreetMap, options, ctx.clone());
+    log::info!("Loaded map tiles");
+    tiles
 }
 
 struct RouteLayer<'a> {
@@ -1001,6 +1049,7 @@ fn fit_map_to_segments(
         *center = lon_lat(0.0, 0.0);
         memory.center_at(*center);
         let _ = memory.set_zoom(1.0);
+        log::warn!("Route bounds were empty when fitting map");
         return;
     };
 
@@ -1065,8 +1114,8 @@ impl eframe::App for App {
                     Ok(gpx) => {
                         self.load(&ctx, gpx, None);
                     }
-                    Err(_e) => {
-                        // TODO: show a status message that the file could not be loaded
+                    Err(e) => {
+                        log::error!("Failed to load GPX file: {}", e);
                     }
                 }
             }
