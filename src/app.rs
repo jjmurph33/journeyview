@@ -1205,6 +1205,16 @@ impl eframe::App for App {
             self.top_panel(ui);
         });
 
+        if self.file_promise.is_some() {
+            Panel::bottom("bottom_panel").frame(frame).show(ui, |ui| {
+                ui.label(
+                    RichText::new("Loading...")
+                        .size(22.0)
+                        .color(Color32::from_rgb(80, 255, 80)),
+                );
+            });
+        }
+
         CentralPanel::default().show(ui, |ui| match self.mode {
             Mode::Normal => {
                 if self.show_elevation {
@@ -1221,24 +1231,26 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
 
         // check on the async file loading dialog
-        if let Some(promise) = &self.file_promise
-            && let Some(result) = promise.ready()
-        {
-            match result {
-                Ok(Some(data)) => match journey::load_gpx_data(data) {
-                    Ok(gpx) => self.load(&ctx, gpx, None),
+        if let Some(promise) = &self.file_promise {
+            if let Some(result) = promise.ready() {
+                match result {
+                    Ok(Some(data)) => match journey::load_gpx_data(data) {
+                        Ok(gpx) => {
+                            self.load(&ctx, gpx, None);
+                        }
+                        Err(error) => {
+                            log::error!("Failed to load GPX file: {}", error);
+                            self.error_message = Some(error);
+                        }
+                    },
+                    Ok(None) => {}
                     Err(error) => {
-                        log::error!("Failed to load GPX file: {}", error);
-                        self.error_message = Some(error);
+                        log::error!("Failed to read GPX file: {}", error);
+                        self.error_message = Some(error.clone());
                     }
-                },
-                Ok(None) => {}
-                Err(error) => {
-                    log::error!("Failed to read GPX file: {}", error);
-                    self.error_message = Some(error.clone());
                 }
+                self.file_promise = None;
             }
-            self.file_promise = None;
         }
 
         // check for any dropped files
