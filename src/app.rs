@@ -286,7 +286,7 @@ impl App {
                             Color32::from_rgb(33, 150, 243),
                             Color32::from_rgb(21, 101, 192),
                         ) {
-                            app.open_gpx_file();
+                            app.open_gpx_file(ui.ctx());
                         }
                     }
                     3 => {
@@ -783,7 +783,7 @@ impl App {
         }
     }
 
-    fn open_gpx_file(&mut self) {
+    fn open_gpx_file(&mut self, ctx: &Context) {
         if self.file_promise.is_some() {
             self.error_message = Some("A GPX file is already loading".to_string());
             return;
@@ -794,6 +794,7 @@ impl App {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
+            let _ = ctx;
             std::thread::spawn(move || {
                 let result = pollster::block_on(async {
                     let file = AsyncFileDialog::new()
@@ -822,6 +823,7 @@ impl App {
 
         #[cfg(target_arch = "wasm32")]
         {
+            let ctx = ctx.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let result = async {
                     let file = AsyncFileDialog::new()
@@ -851,6 +853,7 @@ impl App {
                 }
                 .await;
                 sender.send(result);
+                ctx.request_repaint();
             });
         }
 
@@ -934,10 +937,12 @@ impl App {
                 }
 
                 let filename = web_file.name();
+                let ctx = ctx.clone();
                 let (sender, promise) = Promise::new();
                 wasm_bindgen_futures::spawn_local(async move {
                     let result = read_web_file(&web_file).await.map(|data| Some((data, filename)));
                     sender.send(result);
+                    ctx.request_repaint();
                 });
                 self.file_promise = Some(promise);
             }
@@ -1207,6 +1212,7 @@ impl eframe::App for App {
         });
 
         if self.file_promise.is_some() {
+            ui.ctx().request_repaint();
             Panel::bottom("bottom_panel").frame(frame).show(ui, |ui| {
                 ui.label(
                     RichText::new("Loading...")
