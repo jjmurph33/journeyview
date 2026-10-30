@@ -594,13 +594,64 @@ fn add_string(total: &mut usize, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn name_from_gpx(gpx: &Gpx) -> String {
-    if let Some(metadata) = &gpx.metadata
-        && let Some(name) = &metadata.name
+
+pub fn name_from_gpx(gpx: &Gpx, filename: Option<&str>) -> String {
+    let gpx_name = gpx.metadata.as_ref().and_then(|m| m.name.as_ref());
+
+    if let Some(name) = gpx_name
+        && !looks_like_timestamp(name)
     {
         return name.clone();
     }
-    String::new()
+
+    if let Some(filename) = filename {
+        let stem = filename_stem(filename);
+        if !stem.is_empty() {
+            return stem.to_string();
+        }
+    }
+
+    gpx_name.cloned().unwrap_or_default()
+}
+
+fn looks_like_timestamp(name: &str) -> bool {
+    // Check for 4-digit year 1900-2099
+    let has_year = name.as_bytes().windows(4).any(|w| {
+        w.iter().all(|b| b.is_ascii_digit()) && {
+            let year = (w[0] - b'0') as u16 * 1000
+                + (w[1] - b'0') as u16 * 100
+                + (w[2] - b'0') as u16 * 10
+                + (w[3] - b'0') as u16;
+            (1900..=2099).contains(&year)
+        }
+    });
+
+    if !has_year {
+        return false;
+    }
+
+    let lower = name.to_lowercase();
+    let months = [
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december",
+        "jan", "feb", "mar", "apr", "may", "jun",
+        "jul", "aug", "sep", "oct", "nov", "dec",
+    ];
+    let has_month = months.iter().any(|m| lower.contains(m));
+    let has_time = name.contains(':') || name.contains('T') || name.contains('Z');
+    let is_date_like = name.chars().all(|c| {
+        c.is_ascii_digit() || ['-', '/', '.', ' ', 'T', 'Z', ':'].contains(&c)
+    }) && name.chars().filter(|c| c.is_ascii_digit()).count() >= 6;
+
+    has_month || has_time || is_date_like
+}
+
+fn filename_stem(filename: &str) -> &str {
+    let name = std::path::Path::new(filename)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(filename);
+    name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name)
 }
 
 pub fn info(gpx: &Gpx) -> String {

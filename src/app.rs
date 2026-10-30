@@ -53,7 +53,7 @@ pub struct App {
     map_tiles: Option<HttpTiles>,
     map_memory: MapMemory,
     map_center: Position,
-    file_promise: Option<Promise<Result<Option<Vec<u8>>, String>>>,
+    file_promise: Option<Promise<Result<Option<(Vec<u8>, String)>, String>>>,
     error_message: Option<String>,
 }
 
@@ -83,14 +83,10 @@ impl App {
         self.map_memory.center_at(self.map_center);
     }
 
-    fn load(&mut self, ctx: &Context, gpx: Gpx, name: Option<String>) {
+    fn load(&mut self, ctx: &Context, gpx: Gpx, name: Option<String>, filename: Option<String>) {
         self.error_message = None;
         self.gpx = gpx;
-        self.name = if let Some(name) = name {
-            name
-        } else {
-            journey::name_from_gpx(&self.gpx)
-        };
+        self.name = name.unwrap_or_else(|| journey::name_from_gpx(&self.gpx, filename.as_deref()));
         self.init(ctx);
         self.reset_ui();
 
@@ -818,7 +814,7 @@ impl App {
                         file.file_name(),
                         data.len()
                     );
-                    Ok(Some(data))
+                    Ok(Some((data, file.file_name())))
                 });
                 sender.send(result);
             });
@@ -851,7 +847,7 @@ impl App {
                         file.file_name(),
                         data.len()
                     );
-                    Ok(Some(data))
+                    Ok(Some((data, file.file_name())))
                 }
                 .await;
                 sender.send(result);
@@ -866,7 +862,11 @@ impl App {
         match journey::load_gpx_file(&file_path) {
             Ok(gpx) => {
                 log::info!("Loaded GPX file '{}'", file_path);
-                self.load(ctx, gpx, None);
+                let filename = std::path::Path::new(&file_path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|s| s.to_string());
+                self.load(ctx, gpx, None, filename);
             }
             Err(error) => {
                 log::error!("Failed to load GPX file '{}': {}", file_path, error);
@@ -884,7 +884,7 @@ impl App {
         match journey::import(&journey_string) {
             Ok((name, gpx)) => {
                 log::info!("Decoded journey '{}' and preparing to load it", name);
-                self.load(ctx, gpx, Some(name));
+                self.load(ctx, gpx, Some(name), None);
             }
             Err(error) => {
                 log::error!("Failed to import journey string: {}", error);
@@ -933,9 +933,10 @@ impl App {
                     continue;
                 }
 
+                let filename = web_file.name();
                 let (sender, promise) = Promise::new();
                 wasm_bindgen_futures::spawn_local(async move {
-                    let result = read_web_file(&web_file).await.map(Some);
+                    let result = read_web_file(&web_file).await.map(|data| Some((data, filename)));
                     sender.send(result);
                 });
                 self.file_promise = Some(promise);
@@ -1234,9 +1235,9 @@ impl eframe::App for App {
         if let Some(promise) = &self.file_promise {
             if let Some(result) = promise.ready() {
                 match result {
-                    Ok(Some(data)) => match journey::load_gpx_data(data) {
+                    Ok(Some((data, filename))) => match journey::load_gpx_data(data) {
                         Ok(gpx) => {
-                            self.load(&ctx, gpx, None);
+                            self.load(&ctx, gpx, None, Some(filename.clone()));
                         }
                         Err(error) => {
                             log::error!("Failed to load GPX file: {}", error);
